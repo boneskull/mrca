@@ -1,6 +1,6 @@
 'use strict';
 
 module.exports = {
-  require: ['test/setup'],
-  'forbid-only': Boolean(process.env.CI)
+  'forbid-only': Boolean(process.env.CI),
+  spec: 'test/**/*.spec.js'
 };

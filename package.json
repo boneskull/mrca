@@ -1,5 +1,5 @@
 {
-  "name": "packagename",
+  "name": "mrca",
   "version": "0.0.0",
   "private": true,
   "description": "Shankle short loin porchetta strip steak tongue drumstick shoulder shank turkey pork loin picanha flank.",
@@ -7,21 +7,48 @@
   "scripts": {
     "posttest": "markdownlint \"*.md\" && eslint .",
     "test": "nyc mocha \"test/**/*.spec.js\"",
-    "release": "standard-version"
+    "release": "standard-version -a",
+    "generate-declarations": "tsc",
+    "prepublishOnly": "npm run generate-declarations"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/boneskull/packagename"
+    "url": "https://github.com/boneskull/mrca"
   },
+  "files": [
+    "src",
+    "typings"
+  ],
   "keywords": [],
   "author": "Christopher Hiller <boneskull@boneskull.com> (https://boneskull.com/)",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=10"
   },
-  "dependencies": {},
+  "dependencies": {
+    "debug": "^4.2.0",
+    "file-entry-cache": "^5.0.1",
+    "filing-cabinet": "^2.6.0",
+    "find-cache-dir": "^3.3.1",
+    "flat-cache": "^2.0.1",
+    "multimatch": "^5.0.0",
+    "precinct": "^6.3.1",
+    "resolve-from": "^5.0.0",
+    "temp-dir": "^2.0.0",
+    "username": "^5.1.0",
+    "xdg-basedir": "^4.0.0"
+  },
   "devDependencies": {
+    "@types/debug": "^4.1.5",
+    "@types/file-entry-cache": "^5.0.1",
+    "@types/filing-cabinet": "^2.5.0",
+    "@types/find-cache-dir": "^3.2.0",
+    "@types/flat-cache": "^2.0.0",
+    "@types/mocha": "^8.0.3",
+    "@types/node": "^14.14.6",
+    "@types/sinon": "^9.0.8",
     "babel-eslint": "^10.1.0",
+    "escape-string-regexp": "^4.0.0",
     "eslint": "^7.13.0",
     "eslint-config-prettier": "^6.15.0",
     "eslint-config-semistandard": "^15.0.1",
@@ -37,10 +64,15 @@
     "mocha": "^8.2.1",
     "nyc": "^15.1.0",
     "prettier": "^2.1.2",
+    "rewiremock": "^3.14.3",
     "sinon": "^9.2.1",
     "standard-version": "^9.0.0",
+    "typescript": "^4.2.0-dev.20201107",
     "unexpected": "^11.15.0",
-    "unexpected-sinon": "^10.11.2"
+    "unexpected-map": "^2.1.0",
+    "unexpected-set": "^3.0.0",
+    "unexpected-sinon": "^10.11.2",
+    "unexpected-snapshot": "^1.0.2"
   },
   "husky": {
     "hooks": {
@@ -59,5 +91,6 @@
     "singleQuote": true,
     "bracketSpacing": false,
     "endOfLine": "auto"
-  }
+  },
+  "typings": "typings/index.d.ts"
 }

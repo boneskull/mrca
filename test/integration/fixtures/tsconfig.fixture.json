@@ -1,0 +1,4 @@
+{
+  "compilerOptions": {"moduleResolution": "node"},
+  "files": ["./index.fixture.ts"],
+}
