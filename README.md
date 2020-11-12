@@ -16,7 +16,7 @@ $ npm install mrca
 
 ## Usage
 
-> [API docs](https://github.com/boneskull/mrca/master/blob/API.md)
+> [API docs](https://github.com/boneskull/mrca/blog/master/API.md)
 
 ```js
 // ModuleMap extends Map<string,ModuleMapNode>
