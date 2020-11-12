@@ -51,6 +51,32 @@ allFiles.has('quux.js'); // true
 allFiles.has('baz.js'); // true
 ```
 
+## How Does It Work
+
+Given a list of filepaths to begin with ("entry" files), `mrca` will:
+
+1. Statically analyze each using [`precinct`](https://npm.im/precinct) to get a list of dependency names ("partials")
+1. Hand the result to [`filing-cabinet`](https://npm.im/filing-cabinet) for module resolution
+1. Using the resolved paths, create a two-way mapping of each filepath to its dependencies, its dependents, _and_ the original "entry" file(s)
+1. Since this can potentially be _slow_, cache the resulting mapping
+1. Using _all_ the filepaths in the mapping, create a second cache to track file changes
+
+When a file changes, we can then ask `mrca`, "which entry files were affected?"
+
+Practically, if we have `butts.spec.js` which runs tests against `butts.js`, and we made a change to `butts.js`, we can use `mrca` to determine that we need to re-run all the tests in `test/butts.spec.js`.
+
+## Why This
+
+Other similar solutions to the "which tests should I run" problem do _not_ use static analysis (since it can be imperfect--we're going for "good enough" here), and instead require instrumentation to determine which-files-did-what. The results with this strategy are more accurate--but prevents the system from understanding anything except JavaScript-running-in-a-VM. `mrca` is able to understand if you are using Webpack loaders with things like stylesheets, a change to the stylesheet has implications for its dependants. When coupled with something like `ts-node`, `mrca` also understands the relationship between TypeScript sources.
+
+While instrumentation-based solutions make sense for many scenarios, `mrca` was created out of a different set of constraints. In particular, Mocha uses a _pool_ of worker processes to run test files in parallel. Any worker can run one or more test files, in any order, which can provide a performance improvement over one-test-file-per-process. Further, tests written for Mocha _cannot run without `mocha`_, and thusly Mocha's own sources, since they share the same process. This means that an instrumentation-based solution--which gets its information from the files run in a _single_ process--would both result in a murky relationship between the files any given worker process runs, _and_ would be polluted with Mocha's own internals. Given the set of tools available in the ecosystem, anything but static analysis did not seem feasible.
+
+There _will_ be situations where static analysis fails--think dynamic `require`s--but I plan on providing workarounds (of the "bring-your-own mapping" variety) in future development.
+
+## Disclaimer
+
+Mocha doesn't actually use `mrca`--yet. WIP!
+
 ## License
 
 Copyright © 2020 Christopher Hiller. Licensed Apache-2.0
