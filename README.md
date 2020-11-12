@@ -51,10 +51,6 @@ allFiles.has('quux.js'); // true
 allFiles.has('baz.js'); // true
 ```
 
-## Notes
-
-The Typescript declaration files published by this module will contain more complete API documentation.
-
 ## License
 
 Copyright © 2020 Christopher Hiller. Licensed Apache-2.0
