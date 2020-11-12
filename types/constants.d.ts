@@ -1,2 +1,0 @@
-export var DEFAULT_FILE_ENTRY_CACHE_FILENAME: string;
-export var DEFAULT_MODULE_MAP_CACHE_FILENAME: string;
