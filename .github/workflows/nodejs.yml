@@ -15,8 +15,10 @@ jobs:
       - name: Use Node.js ${{ matrix.node_version }}
         uses: actions/setup-node@v1
         with:
-          version: ${{ matrix.node_version }}
+          node_version: ${{ matrix.node_version }}
       - name: npm install
         uses: bahmutov/npm-install@v1
+      - name: Install Annotation Support
+        run: npm install mocha-github-actions-reporter
       - name: test
-        run: npm test
+        run: nyc mocha --reporter=mocha-github-actions-reporter
