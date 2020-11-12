@@ -5,11 +5,12 @@
   "main": "src/index.js",
   "scripts": {
     "posttest": "markdownlint README.md && eslint .",
-    "test": "nyc mocha \"test/**/*.spec.js\"",
+    "test": "nyc mocha",
     "release": "standard-version -a",
     "generate-declarations": "tsc",
     "generate-docs": "jsdoc2md --files 'src/*.js' --configure jsdoc.conf.json > API.md",
-    "prepublishOnly": "npm run generate-declarations && npm run generate-docs"
+    "prepublishOnly": "npm run generate-declarations && npm run generate-docs",
+    "test-ci": "nyc mocha --reporter=mocha-github-actions-reporter"
   },
   "repository": {
     "type": "git",
