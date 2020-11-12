@@ -100,7 +100,6 @@ describe('class ModuleMap', function () {
     };
 
     stubs = {
-      'find-cache-dir': sinon.stub().returns(''),
       'file-entry-cache': {
         FileEntryCache: mocks.FileEntryCache,
       },
@@ -116,6 +115,9 @@ describe('class ModuleMap', function () {
       'module-map-cache': {
         ModuleMapCache: mocks.ModuleMapCache,
       },
+      util: {
+        findCacheDir: sinon.stub().returns('/some/cache/dir'),
+      },
       /** @type {SinonStub} */
       cwd: undefined,
     };
@@ -126,7 +128,9 @@ describe('class ModuleMap', function () {
           .with(stubs['file-entry-cache'])
           .directChildOnly(),
         precinct: r.with(stubs.precinct).directChildOnly(),
-        'find-cache-dir': r.by(() => stubs['find-cache-dir']).directChildOnly(),
+        [require.resolve('../../src/util')]: r
+          .with(stubs.util)
+          .directChildOnly(),
         [require.resolve('../../src/resolver')]: r
           .with(stubs.resolver)
           .directChildOnly(),
@@ -160,6 +164,10 @@ describe('class ModuleMap', function () {
 
     it('should create/load a file entry cache', function () {
       expect(mocks.FileEntryCache.create, 'was called once');
+    });
+
+    it('should always add `cacheDir` to the `ignore` list', function () {
+      expect(moduleMap.ignore, 'to contain', '/some/cache/dir');
     });
   });
 

@@ -79,6 +79,9 @@ class ModuleMap extends Map {
      */
     this.ignore = new Set(ignore);
 
+    // ensure we don't accidentally end up watching the cache directory!
+    this.ignore.add(this.cacheDir);
+
     /**
      * Path to TypeScript config file, if any
      * @type {string?}
