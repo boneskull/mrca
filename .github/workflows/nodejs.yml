@@ -21,4 +21,4 @@ jobs:
       - name: Install Annotation Support
         run: npm install mocha-github-actions-reporter
       - name: test
-        run: nyc mocha --reporter=mocha-github-actions-reporter
+        run: npm run test-ci
