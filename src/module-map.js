@@ -1,10 +1,9 @@
 'use strict';
 
-const flatCache = require('flat-cache');
 const path = require('path');
 const debug = require('debug')('mrca:module-map');
-// const fileEntryCache = require('file-entry-cache');
 const {FileEntryCache} = require('./file-entry-cache');
+const {ModuleMapCache} = require('./module-map-cache');
 const {resolveDependencies} = require('./resolver');
 const {ModuleMapNode} = require('./module-map-node');
 const {findCacheDir} = require('./util');
@@ -14,9 +13,10 @@ const {
 } = require('./constants');
 
 /**
- * A map to track files and their dependencies
- * @type {Map<string,ModuleMapNode>}
- * @public
+ * A very fancy `Map` which provides high-level information about dependency trees and file changes therein.
+ *
+ * This class is the main point of entry for this package; use {@link ModuleMap.create} to get going.
+ * @extends {Map<string,ModuleMapNode>}
  */
 class ModuleMap extends Map {
   /**
@@ -36,61 +36,75 @@ class ModuleMap extends Map {
     webpackConfigPath,
   } = {}) {
     super();
+    /**
+     * Current working directory
+     * @type {string}
+     */
     this.cwd = cwd;
+    /**
+     * Directory containing cache files
+     * @type {string}
+     */
     this.cacheDir = findCacheDir({dir: cacheDir, cwd: this.cwd});
-    this.moduleMapCacheFilename = moduleMapCacheFilename;
-    this.moduleMapCache = this.createModuleMapCache();
+
+    /**
+     * Cache of the module map (cache of dep tree)
+     * @type {ModuleMapCache}
+     */
+    this.moduleMapCache = ModuleMapCache.create({
+      filename: moduleMapCacheFilename,
+      cacheDir: this.cacheDir,
+      cwd: this.cwd,
+    });
+
+    /**
+     * Cache of the file entry cache (tracks changes)
+     * @type {FileEntryCache}
+     */
     this.fileEntryCache = FileEntryCache.create({
       filename: fileEntryCacheFilename,
       cacheDir: this.cacheDir,
       cwd: this.cwd,
     });
+
+    /**
+     * List of entry files (top-level files)
+     * @type {Set<string>}
+     */
     this.entryFiles = new Set(entryFiles);
+
+    /**
+     * Globs to ignore
+     * @type {Set<string>}
+     */
     this.ignore = new Set(ignore);
+
+    /**
+     * Path to TypeScript config file, if any
+     * @type {string?}
+     */
     this.tsConfigPath = tsConfigPath;
+
+    /**
+     * Path to Webpack config file, if any
+     * @type {string?}
+     */
     this.webpackConfigPath = webpackConfigPath;
+
+    /**
+     * Set to `true` after {@link ModuleMap#_init} has been called successfully.
+     * @ignore
+     */
     this._initialized = false;
-    this.init({reset});
+
+    this._init({reset});
+
     debug(
-      'instantiated ModuleMap with %d initial files and caches in %s',
+      'instantiated ModuleMap <%s> with %d initial files and caches in %s',
       this.files.size,
       this.cacheDir
     );
   }
-
-  /**
-   * @type {string}
-   */
-  get cwd() {
-    /* istanbul ignore next */
-    return this._cwd;
-  }
-
-  set cwd(value) {
-    this._cwd = value;
-  }
-
-  /**
-   * @type {string}
-   */
-  get moduleMapCacheFilename() {
-    return this._moduleMapCacheFilename;
-  }
-
-  set moduleMapCacheFilename(value) {
-    this._moduleMapCacheFilename = value;
-  }
-
-  // /**
-  //  * @type {string}
-  //  */
-  // get fileEntryCacheFilename() {
-  //   return this._fileEntryCacheFilename;
-  // }
-
-  // set fileEntryCacheFilename(value) {
-  //   this._fileEntryCacheFilename = value;
-  // }
 
   /**
    * Like `Map#keys()` (for our purposes) but returns a `Set` instead.
@@ -101,7 +115,7 @@ class ModuleMap extends Map {
   }
 
   /**
-   * Returns a `Set` of directories of files
+   * Returns a list of unique directories of all files
    * @type {Set<string>}
    */
   get directories() {
@@ -112,6 +126,10 @@ class ModuleMap extends Map {
     return set;
   }
 
+  /**
+   * Returns a list of unique directories of all entry files
+   * @type {Set<string>}
+   */
   get entryDirectories() {
     const set = new Set();
     for (const filepath of this.entryFiles) {
@@ -121,45 +139,30 @@ class ModuleMap extends Map {
   }
 
   /**
-   * Load module map cache
+   * Returns a set of changed files
+   * @ignore
+   * @returns {Set<string>}
    */
-  createModuleMapCache() {
-    const cache = flatCache.create(this.moduleMapCacheFilename, this.cacheDir);
-    debug(
-      'created/loaded module map cache at %s',
-      path.join(this.cacheDir, this.moduleMapCacheFilename)
-    );
-    return cache;
+  _yieldChangedFiles() {
+    return this.fileEntryCache.yieldChangedFiles(this);
   }
-
-  // /**
-  //  * Load file entry cache
-  //  */
-  // createFileEntryCache() {
-  //   const cache = fileEntryCache.create(
-  //     this.fileEntryCacheFilename,
-  //     this.cacheDir
-  //   );
-  //   debug(
-  //     'created/loaded file entry cache at %s',
-  //     path.join(this.cacheDir, this.fileEntryCacheFilename)
-  //   );
-  //   return cache;
-  // }
 
   /**
    * Initializes map from cache on disk.  Should only be called once, by constructor.
    * Re-populates map from entry files
    * Persists caches
    * @param {InitOptions} [opts] - Init options
+   * @ignore
+   * @returns {ModuleMap}
    */
-  init({reset = false, force = false} = {}) {
+  _init({reset = false, force = false} = {}) {
     if (!force && this._initialized) {
       // XXX: needs error code
       throw new Error('already initialized');
     }
     if (reset) {
-      this.resetModuleMapCache().fileEntryCache.reset();
+      this.moduleMapCache.reset();
+      this.fileEntryCache.reset();
     }
     this.mergeFromCache({destructive: true});
 
@@ -174,14 +177,22 @@ class ModuleMap extends Map {
     }
     // figure out what files have changed.
     // on a clean cache, this will return all the files
+    const changedFiles = this._yieldChangedFiles();
+    const nodes = this.getAll(changedFiles);
 
-    const nodes = this.getAll(this.fileEntryCache.yieldChangedFiles());
+    /* istanbul ignore next */
+    if (changedFiles.size > nodes.size) {
+      debug(
+        '%d files changed but are missing from the ModuleMap!',
+        changedFiles.size - nodes.size
+      );
+    }
 
     if (nodes.size) {
       this._populate(nodes, {force: true});
     }
 
-    this.persistModuleMapCache();
+    this.moduleMapCache.save(this);
 
     this._initialized = true;
 
@@ -193,11 +204,15 @@ class ModuleMap extends Map {
    * @returns {ModuleMap}
    */
   save() {
-    this.persistModuleMapCache();
-    this.fileEntryCache.save();
+    this.moduleMapCache.save(this);
+    this.fileEntryCache.save(this);
     return this;
   }
 
+  /**
+   * Returns a JSON representation of the ModuleMap.
+   * @returns {string}
+   */
   toString() {
     return JSON.stringify(this.toJSON());
   }
@@ -232,112 +247,108 @@ class ModuleMap extends Map {
     return set;
   }
 
-  resetModuleMapCache() {
-    this.moduleMapCache.destroy();
-    debug('destroyed module map cache: %s', this.moduleMapCacheFilename);
+  /**
+   * Adds an entry file to the map, and populates its dependences
+   * @param {string} filepath
+   * @returns {ModuleMap}
+   */
+  addEntryFile(filepath) {
+    filepath = path.resolve(this.cwd, filepath);
+
+    if (!this.entryFiles.has(filepath)) {
+      this.entryFiles.add(filepath);
+    }
+
+    if (this.has(filepath)) {
+      debug('marked file %s as an entry file', filepath);
+    } else {
+      this.set(filepath, ModuleMapNode.create(filepath));
+      this._populate([this.get(filepath)]);
+      debug('added new entry file %s', filepath);
+    }
     return this;
   }
 
   /**
-   * Adds an entry file to the map, and populates its dependences
-   * @param {string} filename
-   */
-  addEntryFile(filename) {
-    filename = path.resolve(this.cwd, filename);
-
-    if (!this.entryFiles.has(filename)) {
-      this.entryFiles.add(filename);
-    }
-
-    if (this.has(filename)) {
-      debug('marked file %s as an entry file', filename);
-    } else {
-      this.set(filename, ModuleMapNode.create(filename));
-      this._populate(this.get(filename));
-      debug('added new entry file %s', filename);
-    }
-  }
-
-  /**
    * Syncs module map cache _from_ disk
-   * @param {{destructive?: boolean}} param0
+   * @param {Partial<MergeFromCacheOptions>} [opts] - Options
+   * @returns {ModuleMap}
    */
   mergeFromCache({destructive = false} = {}) {
-    const map = this.moduleMapCache.all();
     if (destructive) {
       this.clear();
       debug('cleared in-memory ModuleMap');
     }
 
-    const cacheValues = Object.values(map);
-    cacheValues.forEach(
-      ({filename, children = [], entryFiles = [], parents = []}) => {
-        this.set(
-          filename,
-          ModuleMapNode.create(filename, {
-            children: new Set(children),
-            entryFiles: new Set(entryFiles),
-            parents: new Set(parents),
-          })
-        );
-      }
+    const cacheValues = this.moduleMapCache.values();
+    for (const {
+      filename,
+      children,
+      entryFiles,
+      parents,
+    } of this.moduleMapCache.values()) {
+      this.set(
+        filename,
+        ModuleMapNode.create(filename, {
+          children: new Set(children),
+          entryFiles: new Set(entryFiles),
+          parents: new Set(parents),
+        })
+      );
+    }
+    debug(
+      'merged %d files from on-disk cache into ModuleMap',
+      cacheValues.size
     );
-    debug('added %d files to map from cache', cacheValues.length);
     return this;
   }
 
   /**
    * Removes a file from the map (and all references within the map's `ModuleMapNode` values)
-   * @param {string} filename
+   * @param {string} filepath
+   * @override
+   * @returns {boolean}
    */
-  delete(filename) {
-    if (this.has(filename)) {
-      const node = this.get(filename);
+  delete(filepath) {
+    filepath = path.resolve(this.cwd, filepath);
+    if (this.has(filepath)) {
+      const {
+        filename,
+        children,
+        parents,
+      } = /** @type {ModuleMapNode} */ (this.get(filepath));
 
-      node.children.forEach((childFilename) => {
-        const {parents} = this.get(childFilename);
-        parents.delete(node.filename);
+      for (const childFilepath of children) {
+        const {parents} = this.get(childFilepath);
+        parents.delete(filename);
         if (!parents.size) {
-          this.delete(childFilename);
-          debug('cascading delete: %s', childFilename);
+          this.delete(childFilepath);
+          debug('cascading delete: %s', childFilepath);
         }
-      });
-      node.parents.forEach((parentFilename) => {
-        this.get(parentFilename).children.delete(node.filename);
-      });
+      }
+      for (const parentFilepath of parents) {
+        this.get(parentFilepath).children.delete(filename);
+      }
       this.entryFiles.delete(filename);
     }
-    return super.delete(filename);
-  }
-
-  /**
-   * Ensures in-memory module map cache has same values as in-memory ModuleMap.
-   * Does not _remove_ any values from the in-memory module map cache.
-   */
-  _normalizeModuleMapCache() {
-    this.forEach((value, key) => {
-      this.moduleMapCache.setKey(key, value);
-    });
-    return this;
-  }
-
-  /**
-   * Normalizes & persists module map cache to disk
-   */
-  persistModuleMapCache() {
-    this._normalizeModuleMapCache();
-    this.moduleMapCache.save(true);
-    debug('persisted module map cache: %s', this.moduleMapCacheFilename);
-    return this;
+    return super.delete(filepath);
   }
 
   /**
    * Given one or more `ModuleMapNode`s, find dependencies and add them to the map.
-   * @param {Set<ModuleMapNode>} nodes - One or more module nodes to find dependencies for
+   * @ignore
+   * @param {Set<ModuleMapNode>|ModuleMapNode[]} nodes - One or more module nodes to find dependencies for
    */
   _populate(nodes, {force = false} = {}) {
     /**
-     * @type {{node: ModuleMapNode, entryNode?: ModuleMapNode}[]}
+     * @typedef {Object} PopulateStackEntry
+     * @property {ModuleMapNode} node
+     * @property {ModuleMapNode} [entryNode]
+     * @ignore
+     * */
+    /**
+     * @type {PopulateStackEntry[]}
+     * @ignore
      */
     const stack = [];
     const seen = new Set();
@@ -375,8 +386,11 @@ class ModuleMap extends Map {
   }
 
   /**
-   * Find all dependencies for `filepath`
+   * Find all dependencies for `filepath`.
+   *
+   * You probably don't need to call this directly.
    * @param {string} filepath
+   * @returns {Set<string>}
    */
   findDependencies(filepath) {
     return resolveDependencies(path.resolve(this.cwd, filepath), {
@@ -441,7 +455,7 @@ class ModuleMap extends Map {
       this.markFileAsChanged(knownChangedFile);
     }
 
-    const changedFilepaths = this.fileEntryCache.yieldChangedFiles();
+    const changedFilepaths = this._yieldChangedFiles();
 
     if (changedFilepaths.size) {
       let changedNodes = this.getAll(changedFilepaths);
@@ -457,7 +471,7 @@ class ModuleMap extends Map {
         changedNodes = this.getAll(changedFilepaths);
         if (changedNodes.size !== changedFilepaths.size) {
           debug('syncing from disk did not help; rebuilding');
-          this.init({reset: true, force: true});
+          this._init({reset: true, force: true});
           changedNodes = this.getAll(changedFilepaths);
           if (changedNodes.size === changedFilepaths.size) {
             debug('successfully reconciled map');
@@ -483,7 +497,7 @@ class ModuleMap extends Map {
    * Returns a stable object representation of this ModuleMap.
    * Keys (filenames) will be sorted; values (`ModuleMapNode`
    * instances) will be the result of calling {@link ModuleMapNode#toJSON()} on each
-   * @returns {{[key: string]: ModuleMapNodeJSON}}
+   * @returns {Object<string,ModuleMapNodeJSON>}
    */
   toJSON() {
     return [...this]
@@ -534,4 +548,9 @@ exports.ModuleMap = ModuleMap;
 
 /**
  * @typedef {import('./module-map-node').ModuleMapNodeJSON} ModuleMapNodeJSON
+ */
+/**
+ * Options for {@link ModuleMapNode#mergeFromCache}.
+ * @typedef {Object} MergeFromCacheOptions
+ * @property {boolean} destructive - If true, destroy the in-memory cache
  */

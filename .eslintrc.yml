@@ -5,6 +5,8 @@ extends:
   - plugin:prettier/recommended
 rules:
   standard/computed-property-even-spacing: off
+parserOptions:
+  sourceType: script
 overrides:
   - files:
       - .mocharc.js
@@ -14,7 +16,3 @@ overrides:
       - test/**/*.spec.js
     env:
       mocha: true
-    globals:
-      expect: false
-      sinon: false
-      proxyquire: false

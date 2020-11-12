@@ -1,5 +1,4 @@
 'use strict';
-
 const {mkdirSync} = require('fs');
 const os = require('os');
 const path = require('path');
@@ -16,6 +15,7 @@ const platform = os.platform();
  * Otherwise, use `.cache/mocha` from `cwd`.
  * Directories will be created recursively.
  * @param {FindCacheDirOptions} [opts] - Optional options
+ * @ignore
  * @returns {string} Path to a cache dir
  */
 exports.findCacheDir = ({dir, cwd = process.cwd()} = {}) => {
@@ -47,6 +47,8 @@ exports.findCacheDir = ({dir, cwd = process.cwd()} = {}) => {
 };
 
 /**
+ * Options for {@link findCacheDir}.
+ * @ignore
  * @typedef {Object} FindCacheDirOptions
  * @property {string} [dir] - Explicit dir; will be created if necessary
  * @property {string} [cwd] - Current working directory

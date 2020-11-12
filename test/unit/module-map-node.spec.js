@@ -1,6 +1,6 @@
 describe('class ModuleMapNode', function () {
   afterEach(function () {
-    sinon.restore();
+    // sinon.restore();
   });
   beforeEach(function () {});
 });

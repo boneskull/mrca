@@ -2,28 +2,27 @@
 
 const {ModuleMap} = require('../../src/module-map');
 const {ModuleMapNode} = require('../../src/module-map-node');
+const {FileEntryCache} = require('../../src/file-entry-cache');
 const sinon = require('sinon');
 const path = require('path');
 const expect = require('../expect');
 
 /**
- * @param {string} filepath
+ * @param {string} filename
  */
-const resolveFixturePath = (filepath) =>
-  path.join(__dirname, 'fixtures', filepath);
+const resolveFixturePath = (filename) =>
+  path.join(__dirname, 'fixtures', 'module-map', filename);
 
 const TEST_MODULE_MAP_CACHE_FILENAME = 'module-map-integration-test.cache.json';
 const TEST_FILE_ENTRY_CACHE_FILENAME = 'file-entry-integration-test.cache.json';
 const TEST_WITH_DEP_PATH = resolveFixturePath(
-  'module-map/test-with-dependency.fixture.js'
+  'test-with-dependency.fixture.js'
 );
-const DEP_PATH = resolveFixturePath('module-map/dependency.fixture.js');
+const DEP_PATH = resolveFixturePath('dependency.fixture.js');
 const TEST_WITH_TRANSITIVE_DEP_PATH = resolveFixturePath(
-  'module-map/test-with-transitive-dep.fixture.js'
+  'test-with-transitive-dep.fixture.js'
 );
-const TRANSITIVE_DEP_PATH = resolveFixturePath(
-  'module-map/transitive-dep.fixture.js'
-);
+const TRANSITIVE_DEP_PATH = resolveFixturePath('transitive-dep.fixture.js');
 
 describe('module-map', function () {
   /**
@@ -32,14 +31,9 @@ describe('module-map', function () {
   let moduleMap;
 
   beforeEach(function () {
-    sinon
-      .stub(ModuleMap.prototype, 'fileEntryCacheFilename')
-      .get(() => TEST_FILE_ENTRY_CACHE_FILENAME);
-    sinon
-      .stub(ModuleMap.prototype, 'moduleMapCacheFilename')
-      .get(() => TEST_MODULE_MAP_CACHE_FILENAME);
-
     moduleMap = ModuleMap.create({
+      fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+      moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
       entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
       reset: true,
     });
@@ -86,14 +80,16 @@ describe('module-map', function () {
 
       describe('when known files were previously persisted to file entry cache', function () {
         beforeEach(function () {
-          moduleMap.persistFileEntryCache();
+          moduleMap.fileEntryCache.save(moduleMap);
         });
 
         it('should inspect only new (unknown) entry files', function () {
           const someOtherFile = resolveFixturePath(
-            'module-map/test-file-change.fixture.js'
+            'test-file-change.fixture.js'
           );
           const map2 = ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
             entryFiles: [
               TEST_WITH_DEP_PATH,
               TEST_WITH_TRANSITIVE_DEP_PATH,
@@ -113,14 +109,16 @@ describe('module-map', function () {
 
       describe('when known files were not previously persisted to file entry cache', function () {
         beforeEach(function () {
-          moduleMap.resetFileEntryCache();
+          moduleMap.fileEntryCache.reset();
         });
 
         it('should inspect all entry files', function () {
           const someOtherFile = resolveFixturePath(
-            'module-map/test-file-change.fixture.js'
+            'test-file-change.fixture.js'
           );
           const map2 = ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
             entryFiles: [
               TEST_WITH_DEP_PATH,
               TEST_WITH_TRANSITIVE_DEP_PATH,
@@ -156,16 +154,16 @@ describe('module-map', function () {
         let someOtherFile;
 
         beforeEach(function () {
-          someOtherFile = resolveFixturePath(
-            'module-map/test-file-change.fixture.js'
-          );
+          someOtherFile = resolveFixturePath('test-file-change.fixture.js');
           sinon
-            .stub(ModuleMap.prototype, 'popChangedFiles')
+            .stub(FileEntryCache.prototype, 'yieldChangedFiles')
             .returns(new Set([TEST_WITH_DEP_PATH, someOtherFile]));
         });
 
         it('should inspect all changed and new entry files', function () {
           const map2 = ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
             entryFiles: [
               TEST_WITH_DEP_PATH,
               TEST_WITH_TRANSITIVE_DEP_PATH,
@@ -187,12 +185,14 @@ describe('module-map', function () {
       describe('when a known dependency has changed', function () {
         beforeEach(function () {
           sinon
-            .stub(ModuleMap.prototype, 'popChangedFiles')
+            .stub(FileEntryCache.prototype, 'yieldChangedFiles')
             .returns(new Set([DEP_PATH]));
         });
 
         it('should inspect all changed dependencies', function () {
           const map2 = ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
             entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
           });
           expect(map2._populate, 'to have a call satisfying', [
@@ -236,70 +236,26 @@ describe('module-map', function () {
     });
   });
 
-  describe('module map cache creation/loading', function () {
-    describe('when the cache has previously been persisted with known files', function () {
-      it('should return a non-empty cache object', function () {
-        expect(moduleMap.createModuleMapCache().all(), 'to have keys', [
-          ...moduleMap.files,
-        ]);
-      });
-    });
-
-    describe('when the cache has not previously been persisted with known files', function () {
-      beforeEach(function () {
-        moduleMap.resetModuleMapCache();
-      });
-
-      it('should return an empty cache object', function () {
-        expect(moduleMap.createModuleMapCache().all(), 'to be empty');
-      });
-    });
-
-    describe('the on-disk cache', function () {
-      it('should contain actual data');
-    });
-  });
-
-  describe('file entry cache creation/loading', function () {
-    beforeEach(function () {
-      moduleMap.resetFileEntryCache();
-    });
-
-    describe('when the cache has not previously been persisted with known files', function () {
-      it('should return a cache object containing an empty flat cache', function () {
-        // @ts-ignore
-        expect(moduleMap.createFileEntryCache().cache.all(), 'to be empty');
-      });
-    });
-
-    describe('when the cache has previously been persisted with known files', function () {
-      beforeEach(function () {
-        moduleMap.persistFileEntryCache();
-      });
-
-      it('should return a cache object containing a non-empty flat cache', function () {
-        // @ts-ignore
-        expect(moduleMap.createFileEntryCache().cache.all(), 'to have keys', [
-          ...moduleMap.files,
-        ]);
-      });
-    });
-  });
-
   describe('module map cache destruction', function () {
     describe('when a new ModuleMap is instantiated with a previously-reset module map cache', function () {
       beforeEach(function () {
-        moduleMap.resetModuleMapCache();
+        moduleMap.moduleMapCache.reset();
       });
 
       it('should be empty', function () {
-        expect(ModuleMap.create(), 'to be empty');
+        expect(
+          ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
+          }),
+          'to be empty'
+        );
       });
     });
 
     describe('when a ModuleMap has had its module map cache previously reset', function () {
       beforeEach(function () {
-        moduleMap.resetModuleMapCache();
+        moduleMap.moduleMapCache.reset();
       });
 
       it("should not affect the ModuleMap's in-memory contents", function () {
@@ -308,11 +264,11 @@ describe('module-map', function () {
 
       describe('when a ModuleMap then persists its in-memory contents', function () {
         beforeEach(function () {
-          moduleMap.persistModuleMapCache();
+          moduleMap.moduleMapCache.save(moduleMap);
         });
 
         it('should contain a non-empty module map cache', function () {
-          expect(moduleMap.moduleMapCache.all(), 'not to be empty');
+          expect(moduleMap.moduleMapCache.values(), 'not to be empty');
         });
 
         it("should not affect the ModuleMap's in-memory contents", function () {
@@ -325,13 +281,16 @@ describe('module-map', function () {
   describe('file entry cache destruction', function () {
     describe('when a new ModuleMap is instantiated with a previously-reset file entry cache', function () {
       beforeEach(function () {
-        moduleMap.resetFileEntryCache();
+        moduleMap.fileEntryCache.reset();
       });
 
       it('should repopulate the file entry cache', function () {
         expect(
-          // @ts-ignore
-          ModuleMap.create().fileEntryCache.cache.all(),
+          ModuleMap.create({
+            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
+            // @ts-ignore
+          }).fileEntryCache.cache.cache.all(),
           'not to be empty'
         );
       });
@@ -339,12 +298,12 @@ describe('module-map', function () {
 
     describe('when a ModuleMap has had its file entry cache previously reset', function () {
       beforeEach(function () {
-        moduleMap.resetFileEntryCache();
+        moduleMap.fileEntryCache.reset();
       });
 
       it('should clear the file entry cache', function () {
         // @ts-ignore
-        expect(moduleMap.fileEntryCache.cache.all(), 'to be empty');
+        expect(moduleMap.fileEntryCache.cache.cache.all(), 'to be empty');
       });
 
       it("should not affect the ModuleMap's in-memory contents", function () {
@@ -353,12 +312,12 @@ describe('module-map', function () {
 
       describe('when a ModuleMap then updates & persists its file entry cache', function () {
         beforeEach(function () {
-          moduleMap.persistFileEntryCache();
+          moduleMap.fileEntryCache.save(moduleMap);
         });
 
         it('should add all known files back into the file entry cache', function () {
           // @ts-ignore
-          expect(moduleMap.fileEntryCache.cache.all(), 'not to be empty');
+          expect(moduleMap.fileEntryCache.cache.cache.all(), 'not to be empty');
         });
 
         it("should not affect the ModuleMap's in-memory contents", function () {
@@ -371,7 +330,7 @@ describe('module-map', function () {
   describe('finding entry files affected by a file change', function () {
     beforeEach(function () {
       // this will effectively remove any "changed files" in memory from the file entry cache
-      moduleMap.persistFileEntryCache();
+      moduleMap.fileEntryCache.save(moduleMap);
     });
 
     describe('when a direct dependency of an entry file is known to have changed', function () {
@@ -438,7 +397,7 @@ describe('module-map', function () {
       it('should return no affected files', function () {
         expect(
           moduleMap.findAffectedFilesForChangedFiles({
-            knownChangedFiles: [resolveFixturePath('cli/module-map/hook')],
+            knownChangedFiles: [resolveFixturePath('hook.fixture.js')],
           }),
           'to equal',
           {entryFiles: new Set(), allFiles: new Set()}

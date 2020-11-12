@@ -5,7 +5,6 @@ module.exports = require('unexpected')
   .use(require('unexpected-sinon'))
   .use(require('unexpected-map'))
   .use(require('unexpected-set'))
-  .use(require('unexpected-snapshot'))
   .addAssertion('<Map> as JSON <assertion>', (expect, subject) => {
     expect.errorMode = 'nested';
     expect.shift(subject.toJSON());

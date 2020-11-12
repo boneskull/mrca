@@ -1,15 +1,15 @@
 {
   "name": "mrca",
   "version": "0.0.0",
-  "private": true,
-  "description": "Shankle short loin porchetta strip steak tongue drumstick shoulder shank turkey pork loin picanha flank.",
+  "description": "most recent common ancestor: find ancestors for changed files",
   "main": "src/index.js",
   "scripts": {
-    "posttest": "markdownlint \"*.md\" && eslint .",
+    "posttest": "markdownlint README.md && eslint .",
     "test": "nyc mocha \"test/**/*.spec.js\"",
     "release": "standard-version -a",
     "generate-declarations": "tsc",
-    "prepublishOnly": "npm run generate-declarations"
+    "generate-docs": "jsdoc2md --files 'src/*.js' --configure jsdoc.conf.json > API.md",
+    "prepublishOnly": "npm run generate-declarations && npm run generate-docs"
   },
   "repository": {
     "type": "git",
@@ -19,7 +19,19 @@
     "src",
     "typings"
   ],
-  "keywords": [],
+  "keywords": [
+    "dependency",
+    "dependencies",
+    "modules",
+    "typescript",
+    "webpack",
+    "watch",
+    "changes",
+    "files",
+    "esm",
+    "testing",
+    "mocha"
+  ],
   "author": "Christopher Hiller <boneskull@boneskull.com> (https://boneskull.com/)",
   "license": "Apache-2.0",
   "engines": {
@@ -44,8 +56,8 @@
     "@types/filing-cabinet": "^2.5.0",
     "@types/find-cache-dir": "^3.2.0",
     "@types/flat-cache": "^2.0.0",
-    "@types/mocha": "^8.0.3",
-    "@types/node": "^14.14.6",
+    "@types/mocha": "^8.0.4",
+    "@types/node": "^14.14.7",
     "@types/sinon": "^9.0.8",
     "babel-eslint": "^10.1.0",
     "escape-string-regexp": "^4.0.0",
@@ -57,8 +69,11 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-prettier": "^3.1.4",
     "eslint-plugin-promise": "^4.2.1",
-    "eslint-plugin-standard": "^4.0.2",
+    "eslint-plugin-standard": "^4.1.0",
     "husky": "^4.3.0",
+    "jsdoc": "^3.6.6",
+    "jsdoc-to-markdown": "^6.0.1",
+    "jsdoc-ts-utils": "^1.1.2",
     "lint-staged": "^10.5.1",
     "markdownlint-cli": "^0.24.0",
     "mocha": "^8.2.1",
@@ -67,12 +82,11 @@
     "rewiremock": "^3.14.3",
     "sinon": "^9.2.1",
     "standard-version": "^9.0.0",
-    "typescript": "^4.2.0-dev.20201107",
+    "typescript": "^4.2.0-dev.20201109",
     "unexpected": "^11.15.0",
     "unexpected-map": "^2.1.0",
     "unexpected-set": "^3.0.0",
-    "unexpected-sinon": "^10.11.2",
-    "unexpected-snapshot": "^1.0.2"
+    "unexpected-sinon": "^10.11.2"
   },
   "husky": {
     "hooks": {
@@ -92,5 +106,5 @@
     "bracketSpacing": false,
     "endOfLine": "auto"
   },
-  "typings": "typings/index.d.ts"
+  "types": "./types/index.d.ts"
 }

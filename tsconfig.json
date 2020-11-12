@@ -10,11 +10,11 @@
     "checkJs": true,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "outDir": "typings"
+    "outDir": "types"
   },
   "exclude": [
     "**/node_modules/**",
     ".*/**",
-    "typings"
+    "types"
   ]
 }

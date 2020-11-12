@@ -7,7 +7,14 @@ const {findCacheDir} = require('./util');
 
 const {DEFAULT_FILE_ENTRY_CACHE_FILENAME} = require('./constants');
 
-exports.FileEntryCache = class FileEntryCache {
+/**
+ * A wrapper around the `file-entry-cache` module.
+ *
+ * You should not need to interface directly with this class.
+ *
+ * @see https://npm.im/file-entry-cache
+ */
+class FileEntryCache {
   /**
    * Finds an appropriate cache dir (if necessary) and creates the cache on-disk.
    * @param {FileEntryCacheOptions} [opts]
@@ -34,46 +41,66 @@ exports.FileEntryCache = class FileEntryCache {
 
   /**
    * Persists file entry cache to disk
-   * @todo Do we need to accept an optional list of filenames?
    * @todo Do we need to allow `noPrune` to be `false`?
+   * @param {Map<string,any>} map - Map
    * @returns {FileEntryCache}
    */
-  save() {
-    this.cache.normalizeEntries();
+  save(map) {
+    const keys = [];
+    for (const key of map.keys()) {
+      keys.push(key);
+    }
+    const normalized = this.cache.normalizeEntries(keys);
     this.cache.reconcile(true);
-    debug('persisted file entry cache at %s', this.filepath);
+    debug(
+      'persisted file entry cache at %s with %d files',
+      this.filepath,
+      normalized.length
+    );
     return this;
   }
 
   /**
-   *
-   * @param {string} filepath - Filename
+   * Returns `true` if a filepath has changed since we last called {@link FileEntryCache#save}.
+   * @param {string} filepath - Absolute path
    * @returns {boolean}
    */
   hasFileChanged(filepath) {
     return this.cache.hasFileChanged(filepath);
   }
 
+  /**
+   * Marks a filepath as "changed" by removing it from the underlying cache.
+   * @param {string} filepath - Absolute path of file to remove from the underlying cache
+   */
   markFileChanged(filepath) {
     this.cache.removeEntry(filepath);
     return this;
   }
 
   /**
-   * Returns a `Set` of changed files out of those provided.
+   * Returns a `Set` of changed files based on keys of the provided `Map`.
    * If no filepaths provided, returns list of all _known_ changed files.
-   * Resets the state of all files to "not changed" until this method is run again.
-   * @param {string[]|Set<string>} [filepaths] - Filepaths to check for changes
+   * Resets the state of all files to "not changed" until this method is run again
+   * by calling {@link FileEntryCache#save}.
+   * @param {Map<string,any>} map - Map containing keys corresponding to filepaths
    * @returns {Set<string>} Changed filepaths
    */
-  yieldChangedFiles(filepaths = []) {
-    filepaths = new Set(filepaths);
-    const files = new Set(this.cache.getUpdatedFiles([...filepaths]));
-    debug('found %d changed out of %d known files', files.size, filepaths.size);
-    this.save();
+  yieldChangedFiles(map) {
+    const keys = [];
+    for (const key of map.keys()) {
+      keys.push(key);
+    }
+    const files = new Set(this.cache.getUpdatedFiles(keys));
+    debug('found %d changed out of %d known files', files.size, map.size);
+    this.save(map);
     return files;
   }
 
+  /**
+   * Destroys the underlying cache.
+   * @returns {FileEntryCache}
+   */
   reset() {
     this.cache.destroy();
     debug('destroyed file entry cache at %s', this.filepath);
@@ -81,15 +108,19 @@ exports.FileEntryCache = class FileEntryCache {
   }
 
   /**
-   *
+   * Creates a {@link FileEntryCache}.
    * @param {FileEntryCacheOptions} [opts]
+   * @returns {FileEntryCache}
    */
   static create(opts) {
     return new FileEntryCache(opts);
   }
-};
+}
+
+exports.FileEntryCache = FileEntryCache;
 
 /**
+ * Options for {@link FileEntryCache} constructor.
  * @typedef {Object} FileEntryCacheOptions
  * @property {string} [cacheDir] - Explicit cache directory
  * @property {string} [filename] - Filename for cache

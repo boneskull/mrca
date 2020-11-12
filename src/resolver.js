@@ -17,6 +17,7 @@ const constants = (exports.constants = {
  * Filter ignored files from a list of files
  * @param {Set<string>|string[]} files - List of files to match against ignorelist
  * @param {Set<string>|string[]} ignore - Ignored globs
+ * @private
  * @returns {Set<string>} `files` sans any ignored files
  */
 const filterIgnored = (files, ignore) => {
@@ -80,6 +81,7 @@ const JS_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs']);
  * via `require.resolve()`, and another Set containing partials which could not be found this way
  * @param {string} filepath
  * @param {Set<string>} unfilteredPartials
+ * @private
  * @returns {{naivelyResolvedPartials: Set<string>, unresolvedPartials: Set<string>}}
  */
 const tryNaivelyResolvePartials = (filepath, unfilteredPartials) => {
@@ -100,10 +102,11 @@ const tryNaivelyResolvePartials = (filepath, unfilteredPartials) => {
  * Given a set of partial module names/paths, return an array of resolved paths via `filing-cabinet`'s static analysis
  *
  * @param {Set<string>} unresolvedPartials - A Set of partials
- * @param {Partial<import('filing-cabinet').Options>} cabinetOptions  - Options for `filing-cabinet`
+ * @param {Partial<FilingCabinetOptions>} cabinetOptions  - Options for `filing-cabinet`
  * @param {string} filename - Filename for `filing-cabinet` options
  * @param {string} [directory] - CWD (`directory` for `filing-cabinet`)
  * @returns {string[]} Resolved paths
+ * @private
  */
 const resolvePartials = (
   unresolvedPartials,
@@ -171,6 +174,7 @@ exports.resolveDependencies = (
    * Whether or not to perform "naive" module resolution via `require-from`.
    * This is more performant, and is desirable if neither TypeScript nor
    * Webpack is in use.
+   * @ignore
    */
   let shouldDoNaiveResolution = true;
   if (TS_EXTENSIONS.has(extname)) {
@@ -217,7 +221,8 @@ exports.resolveDependencies = (
 
   if (unresolvedPartials.size) {
     /**
-     * @type {Partial<import('filing-cabinet').Options>}
+     * @type {Partial<FilingCabinetOptions>}
+     * @ignore
      */
     const cabinetOptions = {
       webpackConfig: webpackConfigPath,
@@ -260,4 +265,8 @@ exports.resolveDependencies = (
  * @typedef {Object} ConfigureFilingCabinetForTSOptions
  * @property {string} cwd - Current working directory
  * @property {string} tsConfigPath - Path to TS config
+ */
+
+/**
+ * @typedef {import('filing-cabinet').Options} FilingCabinetOptions
  */
