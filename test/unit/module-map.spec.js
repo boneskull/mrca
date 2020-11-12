@@ -4,7 +4,6 @@ const rewiremock = require('rewiremock/node');
 const sinon = require('sinon');
 const path = require('path');
 const expect = require('../expect');
-const CWD = path.join(__dirname, '..');
 
 describe('class ModuleMap', function () {
   let stubs;
@@ -140,7 +139,6 @@ describe('class ModuleMap', function () {
       })
     );
     ModuleMap = moduleMapModule.ModuleMap;
-    stubs.cwd = sinon.stub(ModuleMap.prototype, 'cwd').get(() => CWD);
   });
 
   describe('constructor', function () {
@@ -547,7 +545,6 @@ describe('class ModuleMap', function () {
 
     describe('addEntryFile()', function () {
       beforeEach(function () {
-        stubs.cwd.restore();
         sinon.stub(moduleMap, 'cwd').get(() => '/some/farm/animals');
         sinon.stub(moduleMap, '_populate');
         sinon.spy(moduleMap, 'set');
