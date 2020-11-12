@@ -1,3 +1,6 @@
+/**
+ * Options for {@link ModuleMapNode} constructor.
+ */
 export type ModuleMapNodeOptions = {
     /**
      * - List of parents (dependants), if any
@@ -12,6 +15,9 @@ export type ModuleMapNodeOptions = {
      */
     entryFiles?: Set<string>;
 };
+/**
+ * A representation of a {@link ModuleMapNode} suitable for JSON stringification.
+ */
 export type ModuleMapNodeJSON = {
     /**
      * - Filename
@@ -30,25 +36,39 @@ export type ModuleMapNodeJSON = {
      */
     parents: string[];
 };
+/**
+ * Class used internally by {@link ModuleMap} which tracks the relationship between parents and children.
+ *
+ * All "references" are by filename (string); there are no references to other {@link ModuleMap}s.
+ *
+ * You should not need to create one of these; {@link ModuleMap} will do it for you.
+ */
 export class ModuleMapNode {
     /**
-     * @param {string} filename
+     * Creates a {@link ModuleMapNode}, saving you from the horror of the `new` keyword.
+     * @param {string} filepath
      * @param {ModuleMapNodeOptions} [opts]
+     * @returns {ModuleMapNode}
      */
-    static create(filename: string, opts?: ModuleMapNodeOptions): ModuleMapNode;
+    static create(filepath: string, opts?: ModuleMapNodeOptions): ModuleMapNode;
     /**
-     * Sets properties
-     * @param {string} filename
+     * Just sets some properties, folks.
+     * @param {string} filepath - Absolute filepath. May not point to a "module" per se, but some other file.
      * @param {ModuleMapNodeOptions} opts
      */
-    constructor(filename: string, { entryFiles, children, parents }?: ModuleMapNodeOptions);
+    constructor(filepath: string, { entryFiles, children, parents }?: ModuleMapNodeOptions);
     filename: string;
     entryFiles: Set<string>;
     parents: Set<string>;
     children: Set<string>;
     /**
+     * Returns an object suitable for JSON stringification
      * @returns {ModuleMapNodeJSON}
      */
     toJSON(): ModuleMapNodeJSON;
+    /**
+     * Returns the JSON-stringified representation of this `ModuleMapNode`.
+     * @returns {string}
+     */
     toString(): string;
 }

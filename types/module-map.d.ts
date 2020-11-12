@@ -80,11 +80,21 @@ export type ModuleMapNodeJSON = {
     parents: string[];
 };
 /**
- * A map to track files and their dependencies
- * @type {Map<string,ModuleMapNode>}
- * @public
+ * Options for {@link ModuleMapNode#mergeFromCache}.
  */
-export class ModuleMap extends Map<any, any> {
+export type MergeFromCacheOptions = {
+    /**
+     * - If true, destroy the in-memory cache
+     */
+    destructive: boolean;
+};
+/**
+ * A very fancy `Map` which provides high-level information about dependency trees and file changes therein.
+ *
+ * This class is the main point of entry for this package; use {@link ModuleMap.create} to get going.
+ * @extends {Map<string,ModuleMapNode>}
+ */
+export class ModuleMap extends Map<string, ModuleMapNode> {
     /**
      * Create a new `ModuleMap` instance
      * @param {Partial<ModuleMapOptions>} [opts] - Options
@@ -96,39 +106,81 @@ export class ModuleMap extends Map<any, any> {
      * @param {Partial<ModuleMapOptions>} opts
      */
     constructor({ moduleMapCacheFilename, fileEntryCacheFilename, cacheDir, reset, entryFiles, ignore, cwd, tsConfigPath, webpackConfigPath, }?: Partial<ModuleMapOptions>);
-    set cwd(arg: string);
     /**
+     * Current working directory
      * @type {string}
      */
-    get cwd(): string;
+    cwd: string;
+    /**
+     * Directory containing cache files
+     * @type {string}
+     */
     cacheDir: string;
+    /**
+     * Cache of the module map (cache of dep tree)
+     * @type {ModuleMapCache}
+     */
     moduleMapCache: ModuleMapCache;
+    /**
+     * Cache of the file entry cache (tracks changes)
+     * @type {FileEntryCache}
+     */
     fileEntryCache: FileEntryCache;
+    /**
+     * List of entry files (top-level files)
+     * @type {Set<string>}
+     */
     entryFiles: Set<string>;
+    /**
+     * Globs to ignore
+     * @type {Set<string>}
+     */
     ignore: Set<string>;
-    tsConfigPath: string;
-    webpackConfigPath: string;
+    /**
+     * Path to TypeScript config file, if any
+     * @type {string?}
+     */
+    tsConfigPath: string | null;
+    /**
+     * Path to Webpack config file, if any
+     * @type {string?}
+     */
+    webpackConfigPath: string | null;
+    /**
+     * Set to `true` after {@link ModuleMap#_init} has been called successfully.
+     * @ignore
+     */
     _initialized: boolean;
-    _cwd: string;
     /**
      * Like `Map#keys()` (for our purposes) but returns a `Set` instead.
      * @type {Set<string>}
      */
     get files(): Set<string>;
     /**
-     * Returns a `Set` of directories of files
+     * Returns a list of unique directories of all files
      * @type {Set<string>}
      */
     get directories(): Set<string>;
-    get entryDirectories(): Set<any>;
+    /**
+     * Returns a list of unique directories of all entry files
+     * @type {Set<string>}
+     */
+    get entryDirectories(): Set<string>;
+    /**
+     * Returns a set of changed files
+     * @ignore
+     * @returns {Set<string>}
+     */
     _yieldChangedFiles(): Set<string>;
     /**
      * Initializes map from cache on disk.  Should only be called once, by constructor.
      * Re-populates map from entry files
      * Persists caches
      * @param {InitOptions} [opts] - Init options
+     * @ignore
+     * @returns {ModuleMap}
      */
-    init({ reset, force }?: InitOptions): ModuleMap;
+    _init({ reset, force }?: InitOptions): ModuleMap;
     /**
      * Persists both the module map cache and file entry cache.
      * @returns {ModuleMap}
@@ -152,25 +204,29 @@ export class ModuleMap extends Map<any, any> {
     /**
      * Adds an entry file to the map, and populates its dependences
      * @param {string} filepath
+     * @returns {ModuleMap}
      */
-    addEntryFile(filepath: string): void;
+    addEntryFile(filepath: string): ModuleMap;
     /**
      * Syncs module map cache _from_ disk
-     * @param {{destructive?: boolean}} param0
+     * @param {Partial<MergeFromCacheOptions>} [opts] - Options
+     * @returns {ModuleMap}
      */
-    mergeFromCache({ destructive }?: {
-        destructive?: boolean;
-    }): ModuleMap;
+    mergeFromCache({ destructive }?: Partial<MergeFromCacheOptions>): ModuleMap;
     /**
      * Given one or more `ModuleMapNode`s, find dependencies and add them to the map.
-     * @param {Set<ModuleMapNode>} nodes - One or more module nodes to find dependencies for
+     * @ignore
+     * @param {Set<ModuleMapNode>|ModuleMapNode[]} nodes - One or more module nodes to find dependencies for
      */
-    _populate(nodes: Set<ModuleMapNode>, { force }?: {
+    _populate(nodes: Set<ModuleMapNode> | ModuleMapNode[], { force }?: {
         force?: boolean;
     }): void;
     /**
-     * Find all dependencies for `filepath`
+     * Find all dependencies for `filepath`.
+     *
+     * You probably don't need to call this directly.
      * @param {string} filepath
+     * @returns {Set<string>}
      */
     findDependencies(filepath: string): Set<string>;
     /**
@@ -201,12 +257,12 @@ export class ModuleMap extends Map<any, any> {
      * Returns a stable object representation of this ModuleMap.
      * Keys (filenames) will be sorted; values (`ModuleMapNode`
      * instances) will be the result of calling {@link ModuleMapNode#toJSON()} on each
-     * @returns {{[key: string]: ModuleMapNodeJSON}}
+     * @returns {Object<string,ModuleMapNodeJSON>}
      */
     toJSON(): {
-        [key: string]: import("./module-map-node").ModuleMapNodeJSON;
+        [x: string]: ModuleMapNodeJSON;
     };
 }
+import { ModuleMapNode } from "./module-map-node";
 import { ModuleMapCache } from "./module-map-cache";
 import { FileEntryCache } from "./file-entry-cache";
-import { ModuleMapNode } from "./module-map-node";

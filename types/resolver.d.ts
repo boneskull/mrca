@@ -50,3 +50,5 @@ export type ConfigureFilingCabinetForTSOptions = {
      */
     tsConfigPath: string;
 };
+export type FilingCabinetOptions = cabinet.Options;
+import cabinet = require("filing-cabinet");
