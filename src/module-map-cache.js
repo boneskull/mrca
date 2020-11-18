@@ -48,6 +48,7 @@ class ModuleMapCache {
      * @type {import('flat-cache').Cache}
      */
     this.cache = flatCache.create(this.filename, this.cacheDir);
+    /* istanbul ignore next */
     debug('created/loaded module mapcache at %s', this.filepath);
   }
 
@@ -71,6 +72,7 @@ class ModuleMapCache {
     }
 
     this.cache.save();
+    /* istanbul ignore next */
     debug(
       'persisted module map cache at %s with %d entries',
       this.filepath,
@@ -95,6 +97,7 @@ class ModuleMapCache {
    */
   reset() {
     this.cache.destroy();
+    /* istanbul ignore next */
     debug('destroyed module map cache at %s', this.filepath);
     return this;
   }
