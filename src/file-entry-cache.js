@@ -28,6 +28,7 @@ class FileEntryCache {
     this.cacheDir = findCacheDir({dir: cacheDir, cwd: this.cwd});
     this.filename = filename;
     this.cache = fileEntryCache.create(this.filename, this.cacheDir);
+    /* istanbul ignore next */
     debug('created/loaded file entry cache at %s', this.filepath);
   }
 
@@ -42,16 +43,13 @@ class FileEntryCache {
   /**
    * Persists file entry cache to disk
    * @todo Do we need to allow `noPrune` to be `false`?
-   * @param {Map<string,any>} map - Map
+   * @param {Set<string>} filepaths - Filepaths to record
    * @returns {FileEntryCache}
    */
-  save(map) {
-    const keys = [];
-    for (const key of map.keys()) {
-      keys.push(key);
-    }
-    const normalized = this.cache.normalizeEntries(keys);
+  save(filepaths = new Set()) {
+    const normalized = this.cache.normalizeEntries([...filepaths]);
     this.cache.reconcile(true);
+    /* istanbul ignore next */
     debug(
       'persisted file entry cache at %s with %d files',
       this.filepath,
@@ -79,21 +77,17 @@ class FileEntryCache {
   }
 
   /**
-   * Returns a `Set` of changed files based on keys of the provided `Map`.
-   * If no filepaths provided, returns list of all _known_ changed files.
+   * Returns a `Set` of changed files based on the list provided.
    * Resets the state of all files to "not changed" until this method is run again
    * by calling {@link FileEntryCache#save}.
-   * @param {Map<string,any>} map - Map containing keys corresponding to filepaths
+   * @param {Set<string>} filepaths - List of filepaths
    * @returns {Set<string>} Changed filepaths
    */
-  yieldChangedFiles(map) {
-    const keys = [];
-    for (const key of map.keys()) {
-      keys.push(key);
-    }
-    const files = new Set(this.cache.getUpdatedFiles(keys));
-    debug('found %d changed out of %d known files', files.size, map.size);
-    this.save(map);
+  yieldChangedFiles(filepaths) {
+    const files = new Set(this.cache.getUpdatedFiles([...filepaths]));
+    /* istanbul ignore next */
+    debug('found %d changed out of %d known files', files.size, filepaths.size);
+    this.save(filepaths);
     return files;
   }
 
@@ -103,6 +97,7 @@ class FileEntryCache {
    */
   reset() {
     this.cache.destroy();
+    /* istanbul ignore next */
     debug('destroyed file entry cache at %s', this.filepath);
     return this;
   }
@@ -125,4 +120,10 @@ exports.FileEntryCache = FileEntryCache;
  * @property {string} [cacheDir] - Explicit cache directory
  * @property {string} [filename] - Filename for cache
  * @property {string} [cwd] - Current working directory; affects location of cache dir if not provided
+ */
+
+/**
+ * Options for {@link FileEntryCache#yieldChangedFiles}
+ * @typedef {Object} YieldChangedFilesOptions
+ * @property {Set<string>} filepaths - List of filepaths to check; defaults to all keys in the Map
  */

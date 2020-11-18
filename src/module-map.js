@@ -144,10 +144,11 @@ class ModuleMap extends Map {
   /**
    * Returns a set of changed files
    * @ignore
+   * @param {Set<string>} [filepaths] - List of files to check for changes
    * @returns {Set<string>}
    */
-  _yieldChangedFiles() {
-    return this.fileEntryCache.yieldChangedFiles(this);
+  _yieldChangedFiles(filepaths = this.files) {
+    return this.fileEntryCache.yieldChangedFiles(filepaths);
   }
 
   /**
@@ -180,7 +181,7 @@ class ModuleMap extends Map {
     }
     // figure out what files have changed.
     // on a clean cache, this will return all the files
-    const changedFiles = this._yieldChangedFiles();
+    const changedFiles = this._yieldChangedFiles(this.entryFiles);
     const nodes = this.getAll(changedFiles);
 
     /* istanbul ignore next */
@@ -208,7 +209,7 @@ class ModuleMap extends Map {
    */
   save() {
     this.moduleMapCache.save(this);
-    this.fileEntryCache.save(this);
+    this.fileEntryCache.save(this.files);
     return this;
   }
 
