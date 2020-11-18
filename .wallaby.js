@@ -6,7 +6,7 @@ module.exports = () => ({
     'package.json',
      'test/expect.js',
     {pattern: 'test/integration/fixtures/**/*', instrument: false},
-    {pattern:'node_modules/debug/**/*', instrument: false}
+    {pattern:'node_modules/debug/**/*', instrument: false},
   ],
   filesWithNoCoverageCalculated: [
     'test/expect.js'
@@ -26,5 +26,8 @@ module.exports = () => ({
   },
   debug: true,
   preservePaths: true,
-  runMode: 'onsave'
+  runMode: 'onsave',
+  setup(wallaby) {
+    process.env.MRCA_PROJECT_ROOT_DIR = wallaby.localProjectDir;
+  }
 });
