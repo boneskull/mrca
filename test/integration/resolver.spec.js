@@ -20,7 +20,7 @@ describe('dependency resolution', function () {
    */
   let stubs;
 
-  /** @type {typeof import('../../src/resolver').constants} */
+  /** @type {typeof import('../../src/resolver').Resolver.constants} */
   let constants;
 
   beforeEach(function () {
@@ -47,10 +47,11 @@ describe('dependency resolution', function () {
     );
 
     resolveDependencies = resolver.resolveDependencies;
-    resolver.constants.DEFAULT_TS_CONFIG_FILENAME = 'tsconfig.fixture.json';
-    resolver.constants.DEFAULT_WEBPACK_CONFIG_FILENAME =
+    resolver.Resolver.constants.DEFAULT_TS_CONFIG_FILENAME =
+      'tsconfig.fixture.json';
+    resolver.Resolver.constants.DEFAULT_WEBPACK_CONFIG_FILENAME =
       'webpack.config.fixture.js';
-    constants = resolver.constants;
+    constants = resolver.Resolver.constants;
   });
 
   afterEach(function () {
