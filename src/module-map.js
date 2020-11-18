@@ -100,10 +100,15 @@ class ModuleMap extends Map {
      */
     this._initialized = false;
 
-    this._init({reset});
+    /**
+     * When this resolves, the module map has been hydrated.
+     * @type {Promise<void>}
+     */
+    this.ready = this._init({reset});
 
+    /* istanbul ignore next */
     debug(
-      'instantiated ModuleMap <%s> with %d initial files and caches in %s',
+      'instantiated ModuleMap with %d initial files and caches in %s',
       this.files.size,
       this.cacheDir
     );
@@ -153,13 +158,13 @@ class ModuleMap extends Map {
 
   /**
    * Initializes map from cache on disk.  Should only be called once, by constructor.
-   * Re-populates map from entry files
+   * Hydrates only entry files.
    * Persists caches
    * @param {InitOptions} [opts] - Init options
    * @ignore
-   * @returns {ModuleMap}
+   * @returns {Promise<void>}
    */
-  _init({reset = false, force = false} = {}) {
+  async _init({reset = false, force = false} = {}) {
     if (!force && this._initialized) {
       // XXX: needs error code
       throw new Error('already initialized');
@@ -173,8 +178,10 @@ class ModuleMap extends Map {
     // ensure we add unknown entry files
     for (const entryFile of this.entryFiles) {
       if (!this.has(entryFile)) {
+        /* istanbul ignore next */
         debug('added new entry file: %s', entryFile);
         this.set(entryFile, ModuleMapNode.create(entryFile));
+        /* istanbul ignore next */
       } else {
         debug('already know about entry file: %s', entryFile);
       }
@@ -193,14 +200,12 @@ class ModuleMap extends Map {
     }
 
     if (nodes.size) {
-      this._populate(nodes, {force: true});
+      await this._hydrate(nodes, {force: true});
     }
 
     this.moduleMapCache.save(this);
 
     this._initialized = true;
-
-    return this;
   }
 
   /**
@@ -254,9 +259,9 @@ class ModuleMap extends Map {
   /**
    * Adds an entry file to the map, and populates its dependences
    * @param {string} filepath
-   * @returns {ModuleMap}
+   * @returns {Promise<ModuleMap>}
    */
-  addEntryFile(filepath) {
+  async addEntryFile(filepath) {
     filepath = path.resolve(this.cwd, filepath);
 
     if (!this.entryFiles.has(filepath)) {
@@ -264,10 +269,12 @@ class ModuleMap extends Map {
     }
 
     if (this.has(filepath)) {
+      /* istanbul ignore next */
       debug('marked file %s as an entry file', filepath);
     } else {
       this.set(filepath, ModuleMapNode.create(filepath));
-      this._populate([this.get(filepath)]);
+      await this._hydrate([this.get(filepath)]);
+      /* istanbul ignore next */
       debug('added new entry file %s', filepath);
     }
     return this;
@@ -281,6 +288,7 @@ class ModuleMap extends Map {
   mergeFromCache({destructive = false} = {}) {
     if (destructive) {
       this.clear();
+      /* istanbul ignore next */
       debug('cleared in-memory ModuleMap');
     }
 
@@ -300,6 +308,7 @@ class ModuleMap extends Map {
         })
       );
     }
+    /* istanbul ignore next */
     debug(
       'merged %d files from on-disk cache into ModuleMap',
       cacheValues.size
@@ -314,7 +323,6 @@ class ModuleMap extends Map {
    * @returns {boolean}
    */
   delete(filepath) {
-    filepath = path.resolve(this.cwd, filepath);
     if (this.has(filepath)) {
       const {
         filename,
@@ -327,6 +335,7 @@ class ModuleMap extends Map {
         parents.delete(filename);
         if (!parents.size) {
           this.delete(childFilepath);
+          /* istanbul ignore next */
           debug('cascading delete: %s', childFilepath);
         }
       }
@@ -343,66 +352,77 @@ class ModuleMap extends Map {
    * @ignore
    * @param {Set<ModuleMapNode>|ModuleMapNode[]} nodes - One or more module nodes to find dependencies for
    */
-  _populate(nodes, {force = false} = {}) {
-    /**
-     * @typedef {Object} PopulateStackEntry
-     * @property {ModuleMapNode} node
-     * @property {ModuleMapNode} [entryNode]
-     * @ignore
-     * */
-    /**
-     * @type {PopulateStackEntry[]}
-     * @ignore
-     */
-    const stack = [];
+  async _hydrate(nodes, {force = false} = {}) {
+    let stack = [...nodes];
+
     const seen = new Set();
-    for (const node of nodes) {
-      stack.push(
-        this.entryFiles.has(node.filename) ? {node, entryNode: node} : {node}
-      );
-    }
     while (stack.length) {
-      const {node, entryNode} = stack.pop();
-      /** @type {Set<string>} */
-      let children;
-      if (force || this.fileEntryCache.hasFileChanged(node.filename)) {
-        children = this.findDependencies(node.filename);
-        node.children = children;
-        debug('added %d children to %s', children.size, node.filename);
+      const toResolve = stack.filter(
+        (node) =>
+          (force || this.fileEntryCache.hasFileChanged(node.filename)) &&
+          !seen.has(node.filename)
+      );
+
+      if (toResolve.length) {
+        const resolvedDeps = await this.findAllDependencies(
+          toResolve.map((node) => node.filename)
+        );
+        /* istanbul ignore next */
+        debug(
+          'found all deps for %d files: %o',
+          toResolve.length,
+          resolvedDeps
+        );
+
+        /**
+         * @ignore
+         * @type {Set<ModuleMapNode>}
+         */
+        const next = new Set();
+        for (const node of stack) {
+          if (resolvedDeps.has(node.filename)) {
+            node.children = resolvedDeps.get(node.filename);
+            node.children.forEach((childFilename) => {
+              const childNode =
+                this.get(childFilename) || ModuleMapNode.create(childFilename);
+              childNode.parents.add(node.filename);
+              if (this.entryFiles.has(node.filename)) {
+                childNode.entryFiles.add(node.filename);
+              }
+              for (const parentEntryFile of node.entryFiles) {
+                childNode.entryFiles.add(parentEntryFile);
+              }
+              this.set(childFilename, childNode);
+              next.add(childNode);
+            });
+          }
+          seen.add(node.filename);
+        }
+        stack = [...next];
       } else {
-        children = node.children;
-      }
-      // TODO I think entry files can get out-of-date here.  test it
-      seen.add(node);
-      for (const child of children) {
-        const childNode = this.get(child) || ModuleMapNode.create(child);
-        if (entryNode) {
-          childNode.entryFiles.add(entryNode.filename);
-        }
-        childNode.parents.add(node.filename);
-        this.set(child, childNode);
-        if (!seen.has(childNode)) {
-          stack.push({node: childNode, entryNode});
-          seen.add(childNode);
-        }
+        // no changed files found and/or we only found deps we've already processed
+        stack = [];
       }
     }
   }
 
   /**
-   * Find all dependencies for `filepath`.
-   *
-   * You probably don't need to call this directly.
-   * @param {string} filepath
-   * @returns {Set<string>}
+   * Given a list of filepaths, return a `Map` keyed by filepath with the value being a `Set` of dependency paths
+   * @param {Set<string>|string[]} filepaths - List of filepaths
+   * @returns {Promise<Map<string,Set<string>>>}
    */
-  findDependencies(filepath) {
-    return resolveDependencies(path.resolve(this.cwd, filepath), {
-      cwd: this.cwd,
-      ignore: this.ignore,
-      tsConfigPath: this.tsConfigPath,
-      webpackConfigPath: this.webpackConfigPath,
-    });
+  async findAllDependencies(filepaths) {
+    const dependencies = new Map();
+    for (const filepath of filepaths) {
+      const resolved = resolveDependencies(path.resolve(this.cwd, filepath), {
+        cwd: this.cwd,
+        ignore: this.ignore,
+        tsConfigPath: this.tsConfigPath,
+        webpackConfigPath: this.webpackConfigPath,
+      });
+      dependencies.set(filepath, resolved);
+    }
+    return dependencies;
   }
 
   /**
@@ -448,9 +468,9 @@ class ModuleMap extends Map {
   /**
    * Given a list of filenames which potentially have changed recently, find all files which depend upon these files
    * @param {FindAffectedFilesOptions} [opts]
-   * @returns {{entryFiles: Set<string>, allFiles: Set<string>}} Zero or more files impacted by a given change
+   * @returns {Promise<{entryFiles: Set<string>, allFiles: Set<string>}>} Zero or more files impacted by a given change
    */
-  findAffectedFilesForChangedFiles({knownChangedFiles = []} = {}) {
+  async findAffectedFilesForChangedFiles({knownChangedFiles = []} = {}) {
     knownChangedFiles = new Set(
       [...knownChangedFiles].map((filename) => path.resolve(this.cwd, filename))
     );
@@ -464,8 +484,10 @@ class ModuleMap extends Map {
     if (changedFilepaths.size) {
       let changedNodes = this.getAll(changedFilepaths);
 
+      // The following error-correction is theoretical for now.
       /* istanbul ignore next */
       if (changedNodes.size !== changedFilepaths.size) {
+        /* istanbul ignore next */
         debug(
           'found %d nodes for %d changed files; attemping sync from disk',
           changedNodes.size,
@@ -474,12 +496,15 @@ class ModuleMap extends Map {
         this.mergeFromCache({destructive: true});
         changedNodes = this.getAll(changedFilepaths);
         if (changedNodes.size !== changedFilepaths.size) {
+          /* istanbul ignore next */
           debug('syncing from disk did not help; rebuilding');
           this._init({reset: true, force: true});
           changedNodes = this.getAll(changedFilepaths);
           if (changedNodes.size === changedFilepaths.size) {
+            /* istanbul ignore next */
             debug('successfully reconciled map');
           } else {
+            /* istanbul ignore next */
             debug(
               'found %d nodes for %d changed files; just gonna go with that',
               changedNodes.size,
@@ -488,10 +513,11 @@ class ModuleMap extends Map {
           }
         }
       }
-      this._populate(changedNodes);
+      await this._hydrate(changedNodes);
 
       return this.findAffectedFiles(changedNodes);
     } else {
+      /* istanbul ignore next */
       debug('no changed files!');
       return {entryFiles: new Set(), allFiles: new Set()};
     }
@@ -515,8 +541,9 @@ class ModuleMap extends Map {
   /**
    * Create a new `ModuleMap` instance
    * @param {Partial<ModuleMapOptions>} [opts] - Options
+   * @returns {ModuleMap}
    */
-  static create(opts) {
+  static create(opts = {}) {
     return new ModuleMap(opts);
   }
 }
@@ -535,6 +562,7 @@ exports.ModuleMap = ModuleMap;
  * @property {string} cwd - Current working directory
  * @property {string} tsConfigPath - Path to TypeScript config file
  * @property {string} webpackConfigPath - Path to Webpack config file
+ * @property {boolean} threaded - If `true`, spawn resolver in a worker thread
  */
 
 /**

@@ -30,6 +30,10 @@ describe('module-map', function () {
    */
   let moduleMap;
 
+  afterEach(function () {
+    sinon.restore();
+  });
+
   beforeEach(function () {
     moduleMap = ModuleMap.create({
       fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
@@ -75,12 +79,12 @@ describe('module-map', function () {
 
     describe('when reloading', function () {
       beforeEach(function () {
-        sinon.spy(ModuleMap.prototype, '_populate');
+        sinon.spy(ModuleMap.prototype, '_hydrate');
       });
 
-      describe('when known files were previously persisted to file entry cache', function () {
+      describe('when known entry files were previously persisted to file entry cache', function () {
         beforeEach(function () {
-          moduleMap.fileEntryCache.save(moduleMap);
+          moduleMap.fileEntryCache.save(moduleMap.files);
         });
 
         it('should inspect only new (unknown) entry files', function () {
@@ -96,7 +100,7 @@ describe('module-map', function () {
               someOtherFile,
             ],
           });
-          expect(map2._populate, 'to have a call satisfying', [
+          expect(map2._hydrate, 'to have a call satisfying', [
             expect
               .it('as array', 'to have an item satisfying', {
                 filename: someOtherFile,
@@ -107,12 +111,13 @@ describe('module-map', function () {
         });
       });
 
-      describe('when known files were not previously persisted to file entry cache', function () {
-        beforeEach(function () {
+      describe('when known entry files were not previously persisted to file entry cache', function () {
+        beforeEach(async function () {
+          await moduleMap.ready;
           moduleMap.fileEntryCache.reset();
         });
 
-        it('should inspect all entry files', function () {
+        it('should inspect all entry files', async function () {
           const someOtherFile = resolveFixturePath(
             'test-file-change.fixture.js'
           );
@@ -125,9 +130,10 @@ describe('module-map', function () {
               someOtherFile,
             ],
           });
+          await map2.ready;
           // a less awkward way to do this might be to just instantiate a bunch
           // of `ModuleMapNode` objects with the proper properties
-          expect(map2._populate, 'to have a call satisfying', [
+          return expect(map2._hydrate, 'to have a call satisfying', [
             expect
               .it('as array', 'to have an item satisfying', {
                 filename: someOtherFile,
@@ -138,13 +144,7 @@ describe('module-map', function () {
               .and('as array', 'to have an item satisfying', {
                 filename: TEST_WITH_TRANSITIVE_DEP_PATH,
               })
-              .and('as array', 'to have an item satisfying', {
-                filename: DEP_PATH,
-              })
-              .and('as array', 'to have an item satisfying', {
-                filename: TRANSITIVE_DEP_PATH,
-              })
-              .and('as array', 'to have length', 5),
+              .and('to have size', 3),
             {force: true},
           ]);
         });
@@ -170,7 +170,7 @@ describe('module-map', function () {
               someOtherFile,
             ],
           });
-          expect(map2._populate, 'to have a call satisfying', [
+          expect(map2._hydrate, 'to have a call satisfying', [
             new Set([
               ModuleMapNode.create(someOtherFile),
               ModuleMapNode.create(TEST_WITH_DEP_PATH, {
@@ -195,7 +195,7 @@ describe('module-map', function () {
             moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
             entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
           });
-          expect(map2._populate, 'to have a call satisfying', [
+          expect(map2._hydrate, 'to have a call satisfying', [
             new Set([
               ModuleMapNode.create(DEP_PATH, {
                 entryFiles: new Set([
@@ -280,19 +280,20 @@ describe('module-map', function () {
 
   describe('file entry cache destruction', function () {
     describe('when a new ModuleMap is instantiated with a previously-reset file entry cache', function () {
-      beforeEach(function () {
+      beforeEach(async function () {
+        await moduleMap.ready;
         moduleMap.fileEntryCache.reset();
       });
 
-      it('should repopulate the file entry cache', function () {
-        expect(
-          ModuleMap.create({
-            fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
-            moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
-            // @ts-ignore
-          }).fileEntryCache.cache.cache.all(),
-          'not to be empty'
-        );
+      it('should repopulate the file entry cache', async function () {
+        const moduleMap2 = ModuleMap.create({
+          fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
+          moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
+          entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
+        });
+        await moduleMap2.ready;
+        // @ts-ignore
+        expect(moduleMap2.fileEntryCache.cache.cache.all(), 'not to be empty');
       });
     });
 
@@ -312,7 +313,7 @@ describe('module-map', function () {
 
       describe('when a ModuleMap then updates & persists its file entry cache', function () {
         beforeEach(function () {
-          moduleMap.fileEntryCache.save(moduleMap);
+          moduleMap.fileEntryCache.save(moduleMap.files);
         });
 
         it('should add all known files back into the file entry cache', function () {
@@ -330,16 +331,16 @@ describe('module-map', function () {
   describe('finding entry files affected by a file change', function () {
     beforeEach(function () {
       // this will effectively remove any "changed files" in memory from the file entry cache
-      moduleMap.fileEntryCache.save(moduleMap);
+      moduleMap.fileEntryCache.save(moduleMap.files);
     });
 
     describe('when a direct dependency of an entry file is known to have changed', function () {
-      it('should return a list of related files', function () {
-        expect(
+      it('should return a list of related files', async function () {
+        return expect(
           moduleMap.findAffectedFilesForChangedFiles({
             knownChangedFiles: [DEP_PATH],
           }),
-          'to equal',
+          'to be fulfilled with',
           {
             entryFiles: new Set([
               TEST_WITH_DEP_PATH,
@@ -357,12 +358,12 @@ describe('module-map', function () {
     });
 
     describe('when an entry file itself is known to have changed', function () {
-      it('should return a list of affected files', function () {
-        expect(
+      it('should return a list of affected files', async function () {
+        return expect(
           moduleMap.findAffectedFilesForChangedFiles({
             knownChangedFiles: [TEST_WITH_DEP_PATH],
           }),
-          'to equal',
+          'to be fulfilled with',
           {
             entryFiles: new Set([TEST_WITH_DEP_PATH]),
             allFiles: new Set([TEST_WITH_DEP_PATH]),
@@ -372,12 +373,12 @@ describe('module-map', function () {
     });
 
     describe('when a transitive dependency of an entry file is known to have changed', function () {
-      it('should return a list of affected files', function () {
-        expect(
+      it('should return a list of affected files', async function () {
+        return expect(
           moduleMap.findAffectedFilesForChangedFiles({
             knownChangedFiles: [TRANSITIVE_DEP_PATH],
           }),
-          'to equal',
+          'to be fulfilled with',
           {
             entryFiles: new Set([TEST_WITH_TRANSITIVE_DEP_PATH]),
             allFiles: new Set([
@@ -394,12 +395,12 @@ describe('module-map', function () {
     });
 
     describe('when a previously-unknown file is known to have changed', function () {
-      it('should return no affected files', function () {
-        expect(
+      it('should return no affected files', async function () {
+        return expect(
           moduleMap.findAffectedFilesForChangedFiles({
             knownChangedFiles: [resolveFixturePath('hook.fixture.js')],
           }),
-          'to equal',
+          'to be fulfilled with',
           {entryFiles: new Set(), allFiles: new Set()}
         );
       });

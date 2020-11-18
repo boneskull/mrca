@@ -2,7 +2,6 @@
 
 const rewiremock = require('rewiremock/node');
 const sinon = require('sinon');
-const path = require('path');
 const expect = require('../expect');
 
 describe('class ModuleMap', function () {
@@ -150,7 +149,7 @@ describe('class ModuleMap', function () {
       sinon.stub(ModuleMap.prototype, '_init').returnsThis();
 
       moduleMap = new ModuleMap({
-        entryFiles: ['/some/file.js'],
+        entryFiles: ['foo.js', 'bar.js', 'baz.js'],
       });
     });
 
@@ -177,19 +176,21 @@ describe('class ModuleMap', function () {
      */
     let moduleMap;
 
-    beforeEach(function () {
-      sinon.stub(ModuleMap.prototype, '_init').returnsThis();
+    beforeEach(async function () {
+      sinon.stub(ModuleMap.prototype, '_init').resolvesThis();
 
       moduleMap = ModuleMap.create({
-        entryFiles: ['/some/file.js', '/some/other/file.js'],
+        entryFiles: ['foo.js', 'bar.js', 'baz.js'],
+        reset: true,
       });
 
+      await moduleMap.ready;
       /** @type {SinonStub} */ (moduleMap._init).restore();
     });
 
     describe('init()', function () {
       beforeEach(function () {
-        sinon.stub(moduleMap, '_populate').returnsThis();
+        sinon.stub(moduleMap, '_hydrate').returnsThis();
         // sinon.stub(moduleMap, 'persistModuleMapCache').returnsThis();
         sinon.stub(moduleMap, 'mergeFromCache').returnsThis();
         // sinon.stub(moduleMap, 'moduleMapCache.reset').returnsThis();
@@ -202,8 +203,8 @@ describe('class ModuleMap', function () {
         });
 
         describe('when option `force` is falsy', function () {
-          it('should throw', function () {
-            expect(() => moduleMap._init(), 'to throw');
+          it('should reject', async function () {
+            return expect(() => moduleMap._init(), 'to be rejected');
           });
         });
 
@@ -214,34 +215,27 @@ describe('class ModuleMap', function () {
         });
       });
 
-      it('should return its context', function () {
-        expect(moduleMap._init(), 'to be', moduleMap);
-      });
-
       describe('when node already found for entry file', function () {
-        beforeEach(function () {
+        beforeEach(async function () {
           /** @type {SinonStub} */ (moduleMap.fileEntryCache
-            .yieldChangedFiles).returns(new Set(['/some/file.js']));
-          moduleMap.set(
-            '/some/file.js',
-            mocks.ModuleMapNode.create('/some/file.js')
-          );
+            .yieldChangedFiles).returns(new Set(['foo.js']));
+          moduleMap.set('foo.js', mocks.ModuleMapNode.create('foo.js'));
           mocks.ModuleMapNode.create.resetHistory();
-          moduleMap._init();
+          return moduleMap._init();
         });
 
         it('should not create another node', function () {
           expect(mocks.ModuleMapNode.create, 'not to have calls satisfying', [
-            '/some/file.js',
-          ]).and('was called once');
+            'foo.js',
+          ]).and('was called twice'); // for bar and baz
         });
       });
 
       describe('when entry files have changed', function () {
-        beforeEach(function () {
+        beforeEach(async function () {
           /** @type {SinonStub} */ (moduleMap.fileEntryCache
-            .yieldChangedFiles).returns(new Set(['/some/file.js']));
-          moduleMap._init();
+            .yieldChangedFiles).returns(new Set(['foo.js']));
+          return moduleMap._init();
         });
 
         it('should clear and load from map', function () {
@@ -255,8 +249,8 @@ describe('class ModuleMap', function () {
         });
 
         it('should populate starting from entry files', function () {
-          expect(moduleMap._populate, 'to have a call satisfying', [
-            new Set([{filename: '/some/file.js'}]),
+          expect(moduleMap._hydrate, 'to have a call satisfying', [
+            new Set([{filename: 'foo.js'}]),
             {force: true},
           ]);
         });
@@ -272,7 +266,7 @@ describe('class ModuleMap', function () {
         });
 
         it('should not populate anything', function () {
-          expect(moduleMap._populate, 'was not called');
+          expect(moduleMap._hydrate, 'was not called');
         });
       });
 
@@ -308,25 +302,22 @@ describe('class ModuleMap', function () {
       describe('when deleting a child', function () {
         beforeEach(function () {
           moduleMap.set(
-            '/some/file.js',
-            mocks.ModuleMapNode.create('/some/file.js', {
+            'foo.js',
+            mocks.ModuleMapNode.create('foo.js', {
               children: ['/some/child.js', '/some/other/child.js'],
             })
           );
-          moduleMap.set(
-            '/some/other/file.js',
-            mocks.ModuleMapNode.create('/some/other/file.js')
-          );
+          moduleMap.set('bar.js', mocks.ModuleMapNode.create('bar.js'));
           moduleMap.set(
             '/some/child.js',
             mocks.ModuleMapNode.create('/some/child.js', {
-              parents: ['/some/file.js'],
+              parents: ['foo.js'],
             })
           );
           moduleMap.set(
             '/some/other/child.js',
             mocks.ModuleMapNode.create('/some/other/child.js', {
-              parents: ['/some/file.js'],
+              parents: ['foo.js'],
             })
           );
         });
@@ -338,21 +329,21 @@ describe('class ModuleMap', function () {
             'to exhaustively satisfy',
             new Map([
               [
-                '/some/file.js',
-                mocks.ModuleMapNode.create('/some/file.js', {
+                'foo.js',
+                mocks.ModuleMapNode.create('foo.js', {
                   children: ['/some/child.js'],
                 }),
               ],
               [
-                '/some/other/file.js',
-                mocks.ModuleMapNode.create('/some/other/file.js', {
+                'bar.js',
+                mocks.ModuleMapNode.create('bar.js', {
                   children: [],
                 }),
               ],
               [
                 '/some/child.js',
                 mocks.ModuleMapNode.create('/some/child.js', {
-                  parents: ['/some/file.js'],
+                  parents: ['foo.js'],
                 }),
               ],
             ])
@@ -363,39 +354,31 @@ describe('class ModuleMap', function () {
       describe('when deletion creates orphaned children', function () {
         beforeEach(function () {
           moduleMap.set(
-            '/some/file.js',
-            mocks.ModuleMapNode.create('/some/file.js', {
+            'foo.js',
+            mocks.ModuleMapNode.create('foo.js', {
               children: ['/some/child.js', '/some/other/child.js'],
             })
           );
-          moduleMap.set(
-            '/some/other/file.js',
-            mocks.ModuleMapNode.create('/some/other/file.js')
-          );
+          moduleMap.set('bar.js', mocks.ModuleMapNode.create('bar.js'));
           moduleMap.set(
             '/some/child.js',
             mocks.ModuleMapNode.create('/some/child.js', {
-              parents: ['/some/file.js'],
+              parents: ['foo.js'],
             })
           );
           moduleMap.set(
             '/some/other/child.js',
             mocks.ModuleMapNode.create('/some/other/child.js', {
-              parents: ['/some/file.js'],
+              parents: ['foo.js'],
             })
           );
         });
 
         it('should delete orphaned children (cascading delete)', function () {
-          moduleMap.delete('/some/file.js');
+          expect(moduleMap.delete('foo.js'), 'to be true');
           expect(moduleMap, 'to have size', 1).and(
             'to exhaustively satisfy',
-            new Map([
-              [
-                '/some/other/file.js',
-                mocks.ModuleMapNode.create('/some/other/file.js'),
-              ],
-            ])
+            new Map([['bar.js', mocks.ModuleMapNode.create('bar.js')]])
           );
         });
       });
@@ -403,46 +386,47 @@ describe('class ModuleMap', function () {
       describe('when deletion does not create orphaned children', function () {
         beforeEach(function () {
           moduleMap.set(
-            '/some/file.js',
-            mocks.ModuleMapNode.create('/some/file.js', {
+            'foo.js',
+            mocks.ModuleMapNode.create('foo.js', {
               children: ['/some/child.js', '/some/other/child.js'],
             })
           );
           moduleMap.set(
-            '/some/other/file.js',
-            mocks.ModuleMapNode.create('/some/other/file.js', {
+            'bar.js',
+            mocks.ModuleMapNode.create('bar.js', {
               children: ['/some/other/child.js'],
             })
           );
           moduleMap.set(
             '/some/child.js',
             mocks.ModuleMapNode.create('/some/child.js', {
-              parents: ['/some/file.js'],
+              parents: ['foo.js'],
             })
           );
           moduleMap.set(
             '/some/other/child.js',
             mocks.ModuleMapNode.create('/some/other/child.js', {
-              parents: ['/some/other/file.js', '/some/file.js'],
+              parents: ['bar.js', 'foo.js'],
             })
           );
         });
 
         it('should not delete children having other parents', function () {
-          moduleMap.delete('/some/file.js');
-          expect(moduleMap, 'to have size', 2).and(
+          moduleMap.delete('foo.js');
+          expect(
+            moduleMap,
             'to exhaustively satisfy',
             new Map([
               [
-                '/some/other/file.js',
-                mocks.ModuleMapNode.create('/some/other/file.js', {
+                'bar.js',
+                mocks.ModuleMapNode.create('bar.js', {
                   children: ['/some/other/child.js'],
                 }),
               ],
               [
                 '/some/other/child.js',
                 mocks.ModuleMapNode.create('/some/other/child.js', {
-                  parents: ['/some/other/file.js'],
+                  parents: ['bar.js'],
                 }),
               ],
             ])
@@ -467,23 +451,6 @@ describe('class ModuleMap', function () {
 
       it('should return its context', function () {
         expect(moduleMap.save(), 'to be', moduleMap);
-      });
-    });
-
-    describe('findDependencies()', function () {
-      it('should delegate to the resolver', function () {
-        const retval = moduleMap.findDependencies('some-file.js');
-        expect(
-          stubs.resolver.resolveDependencies,
-          'to have a call satisfying',
-          {
-            args: [
-              path.join(moduleMap.cwd, 'some-file.js'),
-              {cwd: moduleMap.cwd, ignore: moduleMap.ignore},
-            ],
-            returnValue: retval,
-          }
-        ).and('was called once');
       });
     });
 
@@ -554,7 +521,7 @@ describe('class ModuleMap', function () {
     describe('addEntryFile()', function () {
       beforeEach(function () {
         sinon.stub(moduleMap, 'cwd').get(() => '/some/farm/animals');
-        sinon.stub(moduleMap, '_populate');
+        sinon.stub(moduleMap, '_hydrate').returnsThis();
         sinon.spy(moduleMap, 'set');
         sinon.spy(moduleMap.entryFiles, 'add');
       });
@@ -583,7 +550,7 @@ describe('class ModuleMap', function () {
 
         it('should not attempt to re-populate from an already known file', function () {
           moduleMap.addEntryFile('/some/farm/animals/foo.js');
-          expect(moduleMap._populate, 'was not called');
+          expect(moduleMap._hydrate, 'was not called');
         });
       });
 
@@ -603,7 +570,100 @@ describe('class ModuleMap', function () {
 
         it('should not attempt to re-populate from an already known file', function () {
           moduleMap.addEntryFile('/some/farm/animals/foo.js');
-          expect(moduleMap._populate, 'was not called');
+          expect(moduleMap._hydrate, 'was not called');
+        });
+      });
+    });
+    describe('_hydrate()', function () {
+      let nodes;
+
+      beforeEach(function () {
+        nodes = new Map([
+          ['foo.js', mocks.ModuleMapNode.create('foo.js')],
+          ['bar.js', mocks.ModuleMapNode.create('bar.js')],
+          ['baz.js', mocks.ModuleMapNode.create('baz.js')],
+        ]);
+      });
+      describe('when no dependencies for the nodes are found', function () {
+        beforeEach(function () {
+          sinon.stub(moduleMap, 'findAllDependencies').resolves(new Map());
+        });
+
+        it('should only attempt to find dependencies for provided ModuleMapNodes', async function () {
+          await moduleMap._hydrate([...nodes.values()]);
+          expect(moduleMap.findAllDependencies, 'to have a call satisfying', [
+            ['foo.js', 'bar.js', 'baz.js'],
+          ]).and('was called once');
+        });
+      });
+
+      describe('when dependencies are found', function () {
+        beforeEach(async function () {
+          sinon
+            .stub(moduleMap, 'findAllDependencies')
+            .resolves(new Map([['foo.js', new Set(['quux.js'])]]));
+          return moduleMap._hydrate([...nodes.values()]);
+        });
+
+        it('should attempt to find dependencies for found dependencies', function () {
+          expect(moduleMap.findAllDependencies, 'to have calls satisfying', [
+            [['foo.js', 'bar.js', 'baz.js']],
+            [['quux.js']],
+          ]).and('was called twice');
+        });
+
+        it('should assign `children` property to provided nodes', function () {
+          expect(
+            nodes.get('foo.js'),
+            'to have property',
+            'children',
+            new Set(['quux.js'])
+          );
+        });
+
+        it('should assign `entryFiles` property to found dependency nodes', function () {
+          expect(
+            moduleMap.get('quux.js'),
+            'to have property',
+            'entryFiles',
+            new Set(['foo.js'])
+          );
+        });
+
+        it('should assign `parents` property to found dependency nodes', function () {
+          expect(
+            moduleMap.get('quux.js'),
+            'to have property',
+            'parents',
+            new Set(['foo.js'])
+          );
+        });
+
+        it('should create nodes for the dependencies if they do not exist', function () {
+          expect(mocks.ModuleMapNode.create, 'to have a call satisfying', [
+            'quux.js',
+          ]);
+        });
+      });
+
+      describe('when the same deps are found multiple times', function () {
+        /** @type {SinonStub} */
+        let findAllDependencies;
+        beforeEach(async function () {
+          findAllDependencies = sinon.stub(moduleMap, 'findAllDependencies');
+          // foo.js depends on quux.js
+          findAllDependencies
+            .onFirstCall()
+            .resolves(new Map([['foo.js', new Set(['quux.js'])]]));
+          // quux.js depends on bar.js, but we've already processed bar.js in the first call.
+          findAllDependencies
+            .onSecondCall()
+            .resolves(new Map([['quux.js', new Set(['bar.js'])]]));
+          return moduleMap._hydrate([...nodes.values()]);
+        });
+
+        it('should not re-process the same deps', function () {
+          expect(findAllDependencies, 'was called twice');
         });
       });
     });
@@ -620,14 +680,14 @@ describe('class ModuleMap', function () {
         beforeEach(function () {
           sinon
             .stub(moduleMap, 'entryFiles')
-            .get(() => new Set(['/some/file.js', '/some/other/path.js']));
+            .get(() => new Set(['foo.js', '/some/other/path.js']));
         });
 
         it('should return a set of all parent directories of entry files', function () {
           expect(
             moduleMap.entryDirectories,
             'to equal',
-            new Set(['/some', '/some/other'])
+            new Set(['.', '/some/other'])
           );
         });
       });
@@ -636,14 +696,14 @@ describe('class ModuleMap', function () {
         beforeEach(function () {
           sinon
             .stub(moduleMap, 'files')
-            .get(() => new Set(['/some/file.js', '/some/other/path.js']));
+            .get(() => new Set(['foo.js', '/some/other/path.js']));
         });
 
         it('should return a set of all parent directories of all files', function () {
           expect(
             moduleMap.directories,
             'to equal',
-            new Set(['/some', '/some/other'])
+            new Set(['.', '/some/other'])
           );
         });
       });
