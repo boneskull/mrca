@@ -61,6 +61,15 @@ class Resolver extends EventEmitter {
     this.tsConfigPath = tsConfigPath;
     this.webpackConfigPath = webpackConfigPath;
     this.ignore = new Set(ignore);
+    /* istanbul ignore next */
+    if (require('debug').enabled('mrca:resolver')) {
+      this.on(constants.EVENT_DEPENDENCY, (data) => {
+        debug('event EVENT_DEPENDENCY emitted with data %o', data);
+      });
+      this.on(constants.EVENT_RESOLVE_DEPENDENCIES_COMPLETE, (data) => {
+        debug('event EVENT_RESOLVE_DEPENDENCIES_COMPLETE w/ data %o', data);
+      });
+    }
   }
 
   /**

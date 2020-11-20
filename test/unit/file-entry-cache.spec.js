@@ -32,9 +32,10 @@ describe('FileEntryCache', function () {
       },
       util: {
         findCacheDir: sinon.stub().returns(DUMMY_CACHE_DIR),
+        createCacheFilename: sinon.stub().returnsArg(0),
       },
       constants: {
-        DEFAULT_FILE_ENTRY_CACHE_FILENAME: 'happy-cache.json',
+        DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME: 'happy',
       },
     };
     const fileEntryCacheModule = rewiremock.proxy(
@@ -92,7 +93,7 @@ describe('FileEntryCache', function () {
     it('should create an on-disk cache', function () {
       FileEntryCache.create();
       expect(mocks['file-entry-cache'].create, 'to have a call satisfying', [
-        mocks.constants.DEFAULT_FILE_ENTRY_CACHE_FILENAME,
+        mocks.constants.DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME,
         DUMMY_CACHE_DIR,
       ]);
     });

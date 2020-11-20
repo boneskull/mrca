@@ -6,13 +6,19 @@
  */
 
 /**
+ * Default extension of cache files
+ * @memberof constants
+ */
+exports.DEFAULT_CACHE_EXTENSION = 'cache.json';
+
+/**
  * The default filename for the file entry cache.
  * @memberof constants
  */
-exports.DEFAULT_FILE_ENTRY_CACHE_FILENAME = 'file-entry.cache.json';
+exports.DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME = 'file-entry';
 
 /**
  * The default filename for the module map cache.
  * @memberof constants
  */
-exports.DEFAULT_MODULE_MAP_CACHE_FILENAME = 'module-map.cache.json';
+exports.DEFAULT_BASE_MODULE_MAP_CACHE_FILENAME = 'module-map';

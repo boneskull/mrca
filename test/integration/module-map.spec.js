@@ -155,9 +155,10 @@ describe('module-map', function () {
 
         beforeEach(function () {
           someOtherFile = resolveFixturePath('test-file-change.fixture.js');
-          sinon
-            .stub(FileEntryCache.prototype, 'yieldChangedFiles')
-            .returns(new Set([TEST_WITH_DEP_PATH, someOtherFile]));
+          sinon.stub(FileEntryCache.prototype, 'yieldChangedFiles').returns({
+            changed: new Set([TEST_WITH_DEP_PATH, someOtherFile]),
+            notFound: new Set(),
+          });
         });
 
         it('should inspect all changed and new entry files', function () {
@@ -184,9 +185,10 @@ describe('module-map', function () {
 
       describe('when a known dependency has changed', function () {
         beforeEach(function () {
-          sinon
-            .stub(FileEntryCache.prototype, 'yieldChangedFiles')
-            .returns(new Set([DEP_PATH]));
+          sinon.stub(FileEntryCache.prototype, 'yieldChangedFiles').returns({
+            changed: new Set([DEP_PATH]),
+            notFound: new Set([]),
+          });
         });
 
         it('should inspect all changed dependencies', function () {

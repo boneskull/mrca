@@ -7,10 +7,6 @@ const {ModuleMapCache} = require('./module-map-cache');
 const {resolveDependencies} = require('./resolver');
 const {ModuleMapNode} = require('./module-map-node');
 const {findCacheDir} = require('./util');
-const {
-  DEFAULT_MODULE_MAP_CACHE_FILENAME,
-  DEFAULT_FILE_ENTRY_CACHE_FILENAME,
-} = require('./constants');
 
 /**
  * A very fancy `Map` which provides high-level information about dependency trees and file changes therein.
@@ -25,8 +21,8 @@ class ModuleMap extends Map {
    * @param {Partial<ModuleMapOptions>} opts
    */
   constructor({
-    moduleMapCacheFilename = DEFAULT_MODULE_MAP_CACHE_FILENAME,
-    fileEntryCacheFilename = DEFAULT_FILE_ENTRY_CACHE_FILENAME,
+    moduleMapCacheFilename,
+    fileEntryCacheFilename,
     cacheDir,
     reset = false,
     entryFiles = [],
@@ -104,7 +100,9 @@ class ModuleMap extends Map {
      * When this resolves, the module map has been hydrated.
      * @type {Promise<void>}
      */
-    this.ready = this._init({reset});
+    this.ready = this._init({reset}).then(() => {
+      this.initialized = true;
+    });
 
     /* istanbul ignore next */
     debug(
@@ -153,7 +151,17 @@ class ModuleMap extends Map {
    * @returns {Set<string>}
    */
   _yieldChangedFiles(filepaths = this.files) {
-    return this.fileEntryCache.yieldChangedFiles(filepaths);
+    const {changed, notFound} = this.fileEntryCache.yieldChangedFiles(
+      filepaths
+    );
+    if (notFound.size) {
+      for (const notFoundFile of notFound) {
+        this.delete(notFoundFile);
+      }
+      this.save();
+      debug('purged %d files from module map cache', notFound.size);
+    }
+    return changed;
   }
 
   /**
@@ -177,44 +185,46 @@ class ModuleMap extends Map {
 
     // ensure we add unknown entry files
     for (const entryFile of this.entryFiles) {
-      if (!this.has(entryFile)) {
+      if (this.has(entryFile)) {
         /* istanbul ignore next */
-        debug('added new entry file: %s', entryFile);
+        debug('cache hit for entry file: %s', entryFile);
+      } else {
         this.set(entryFile, ModuleMapNode.create(entryFile));
         /* istanbul ignore next */
-      } else {
-        debug('already know about entry file: %s', entryFile);
+        debug('added new entry file: %s', entryFile);
       }
     }
+
     // figure out what files have changed.
     // on a clean cache, this will return all the files
-    const changedFiles = this._yieldChangedFiles(this.entryFiles);
-    const nodes = this.getAll(changedFiles);
+    const changedFilepaths = this._yieldChangedFiles(this.entryFiles);
+    const nodes = this.getAll(changedFilepaths);
 
     /* istanbul ignore next */
-    if (changedFiles.size > nodes.size) {
+    if (changedFilepaths.size > nodes.size) {
       debug(
         '%d files changed but are missing from the ModuleMap!',
-        changedFiles.size - nodes.size
+        changedFilepaths.size - nodes.size
       );
     }
 
     if (nodes.size) {
       await this._hydrate(nodes, {force: true});
+      this.save();
+      debug('processed changed files & persisted module map');
     }
-
-    this.moduleMapCache.save(this);
-
-    this._initialized = true;
   }
 
   /**
-   * Persists both the module map cache and file entry cache.
+   * Persists the module map cache and optionally the file entry cache.
+   * @param {Partial<SaveOptions>} opts - Options
    * @returns {ModuleMap}
    */
-  save() {
+  save({persistFileEntryCache = false} = {}) {
     this.moduleMapCache.save(this);
-    this.fileEntryCache.save(this.files);
+    if (persistFileEntryCache) {
+      this.fileEntryCache.save(this.files);
+    }
     return this;
   }
 
@@ -225,6 +235,14 @@ class ModuleMap extends Map {
   toString() {
     return JSON.stringify(this.toJSON());
   }
+
+  /**
+   * Terminates the underlying worker.
+   * This class has no underlying worker, so does nothing.
+   * @abstract
+   * @returns {Promise<void>}
+   */
+  async terminate() {}
 
   /**
    * Returns `true` if `filename` is an entry file.
@@ -431,16 +449,19 @@ class ModuleMap extends Map {
    * @returns {ModuleMap}
    */
   markFileAsChanged(filepath) {
+    if (!filepath) {
+      throw new TypeError('expected non-empty "filepath" parameter');
+    }
     this.fileEntryCache.markFileChanged(filepath);
     return this;
   }
 
   /**
    * Find affected files given a set of nodes
-   * @param {Set<ModuleMapNode>} nodes
+   * @param {Set<ModuleMapNode>|ModuleMapNode[]} nodes
    * @returns {{allFiles: Set<string>, entryFiles: Set<string>}}
    */
-  findAffectedFiles(nodes) {
+  _findAffectedFiles(nodes) {
     const affected = new Set();
     const entries = new Set();
     for (const {filename, parents, entryFiles} of nodes) {
@@ -480,12 +501,11 @@ class ModuleMap extends Map {
     }
 
     const changedFilepaths = this._yieldChangedFiles();
-
+    let changedNodes = new Set();
     if (changedFilepaths.size) {
-      let changedNodes = this.getAll(changedFilepaths);
+      changedNodes = this.getAll(changedFilepaths);
 
       // The following error-correction is theoretical for now.
-      /* istanbul ignore next */
       if (changedNodes.size !== changedFilepaths.size) {
         /* istanbul ignore next */
         debug(
@@ -498,7 +518,7 @@ class ModuleMap extends Map {
         if (changedNodes.size !== changedFilepaths.size) {
           /* istanbul ignore next */
           debug('syncing from disk did not help; rebuilding');
-          this._init({reset: true, force: true});
+          await this._init({reset: true, force: true});
           changedNodes = this.getAll(changedFilepaths);
           if (changedNodes.size === changedFilepaths.size) {
             /* istanbul ignore next */
@@ -514,13 +534,8 @@ class ModuleMap extends Map {
         }
       }
       await this._hydrate(changedNodes);
-
-      return this.findAffectedFiles(changedNodes);
-    } else {
-      /* istanbul ignore next */
-      debug('no changed files!');
-      return {entryFiles: new Set(), allFiles: new Set()};
     }
+    return this._findAffectedFiles(changedNodes);
   }
 
   /**
@@ -585,4 +600,9 @@ exports.ModuleMap = ModuleMap;
  * Options for {@link ModuleMapNode#mergeFromCache}.
  * @typedef {Object} MergeFromCacheOptions
  * @property {boolean} destructive - If true, destroy the in-memory cache
+ */
+
+/**
+ * @typedef {Object} SaveOptions
+ * @property {boolean} persistFileEntryCache - If true, save the file entry cache as well
  */

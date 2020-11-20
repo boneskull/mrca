@@ -64,7 +64,8 @@ class ThreadedModuleMap extends ModuleMap {
    */
   async _hydrate(nodes, {force = false} = {}) {
     await this._online;
-    debug('worker online; hydrating');
+    /* istanbul ignore next */
+    debug('hydrating nodes: %s', [...nodes].map(String));
     return super._hydrate(nodes, {force});
   }
 
@@ -140,6 +141,22 @@ class ThreadedModuleMap extends ModuleMap {
    */
   static create(opts = {}) {
     return new ThreadedModuleMap(opts);
+  }
+
+  /**
+   * Terminates the underlying worker.
+   * Rejects if worker exits with non-zero exit code.
+   * @returns {Promise<void>}
+   */
+  async terminate() {
+    const code = await this._worker.terminate();
+    if (code !== 1) {
+      throw new Error(
+        `received unexpected exit code from terminated worker: ${code}`
+      );
+    } else {
+      debug('worker terminated successfully');
+    }
   }
 }
 

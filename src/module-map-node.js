@@ -37,11 +37,11 @@ class ModuleMapNode {
   }
 
   /**
-   * Returns the JSON-stringified representation of this `ModuleMapNode`.
+   * Returns a short description of this `ModuleMapNode`
    * @returns {string}
    */
   toString() {
-    return JSON.stringify(this.toJSON());
+    return `[ModuleMapNode ${this.filename}]`;
   }
 
   /**

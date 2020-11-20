@@ -3,9 +3,12 @@
 const fileEntryCache = require('file-entry-cache');
 const path = require('path');
 const debug = require('debug')('mrca:file-entry-cache');
-const {findCacheDir} = require('./util');
+const {findCacheDir, createCacheFilename} = require('./util');
 
-const {DEFAULT_FILE_ENTRY_CACHE_FILENAME} = require('./constants');
+const {
+  DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME,
+  DEFAULT_CACHE_EXTENSION,
+} = require('./constants');
 
 /**
  * A wrapper around the `file-entry-cache` module.
@@ -19,14 +22,16 @@ class FileEntryCache {
    * Finds an appropriate cache dir (if necessary) and creates the cache on-disk.
    * @param {FileEntryCacheOptions} [opts]
    */
-  constructor({
-    cacheDir,
-    filename = DEFAULT_FILE_ENTRY_CACHE_FILENAME,
-    cwd = process.cwd(),
-  } = {}) {
+  constructor({cacheDir, filename, cwd = process.cwd()} = {}) {
     this.cwd = cwd;
     this.cacheDir = findCacheDir({dir: cacheDir, cwd: this.cwd});
-    this.filename = filename;
+    this.filename =
+      filename ||
+      createCacheFilename(
+        DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME,
+        this.cwd,
+        DEFAULT_CACHE_EXTENSION
+      );
     this.cache = fileEntryCache.create(this.filename, this.cacheDir);
     /* istanbul ignore next */
     debug('created/loaded file entry cache at %s', this.filepath);
@@ -48,7 +53,7 @@ class FileEntryCache {
    */
   save(filepaths = new Set()) {
     const normalized = this.cache.normalizeEntries([...filepaths]);
-    this.cache.reconcile(true);
+    this.cache.reconcile();
     /* istanbul ignore next */
     debug(
       'persisted file entry cache at %s with %d files',
@@ -77,18 +82,28 @@ class FileEntryCache {
   }
 
   /**
-   * Returns a `Set` of changed files based on the list provided.
+   * Returns a `Set` of changed files based on the list provided and a `Set` of files not found.
    * Resets the state of all files to "not changed" until this method is run again
    * by calling {@link FileEntryCache#save}.
    * @param {Set<string>} filepaths - List of filepaths
-   * @returns {Set<string>} Changed filepaths
+   * @returns {FilesInfo}
    */
   yieldChangedFiles(filepaths) {
-    const files = new Set(this.cache.getUpdatedFiles([...filepaths]));
+    const {changedFiles, notFoundFiles} = this.cache.analyzeFiles([
+      ...filepaths,
+    ]);
+
     /* istanbul ignore next */
-    debug('found %d changed out of %d known files', files.size, filepaths.size);
-    this.save(filepaths);
-    return files;
+    debug(
+      'found %d/%d changed files w/ %d not found',
+      changedFiles.length,
+      filepaths.size,
+      notFoundFiles.length
+    );
+    if (changedFiles.length) {
+      this.save(new Set([...changedFiles, ...notFoundFiles]));
+    }
+    return {changed: new Set(changedFiles), notFound: new Set(notFoundFiles)};
   }
 
   /**
@@ -126,4 +141,10 @@ exports.FileEntryCache = FileEntryCache;
  * Options for {@link FileEntryCache#yieldChangedFiles}
  * @typedef {Object} YieldChangedFilesOptions
  * @property {Set<string>} filepaths - List of filepaths to check; defaults to all keys in the Map
+ */
+
+/**
+ * @typedef {Object} FilesInfo
+ * @property {Set<string>} changed - List of changed files
+ * @property {Set<string>} notFound - List of files not found
  */

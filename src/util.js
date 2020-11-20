@@ -1,4 +1,6 @@
 'use strict';
+
+const slug = require('slug');
 const {mkdirSync} = require('fs');
 const os = require('os');
 const path = require('path');
@@ -45,6 +47,9 @@ exports.findCacheDir = ({dir, cwd = process.cwd()} = {}) => {
   }
   return dir;
 };
+
+exports.createCacheFilename = (base, cwd, ext) =>
+  `${base}_${slug(cwd, {replacement: '-'})}.${ext}`;
 
 /**
  * Options for {@link findCacheDir}.

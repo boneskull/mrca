@@ -3,9 +3,12 @@
 const flatCache = require('flat-cache');
 const path = require('path');
 const debug = require('debug')('mrca:module-map-cache');
-const {findCacheDir} = require('./util');
+const {findCacheDir, createCacheFilename} = require('./util');
 
-const {DEFAULT_MODULE_MAP_CACHE_FILENAME} = require('./constants');
+const {
+  DEFAULT_BASE_MODULE_MAP_CACHE_FILENAME,
+  DEFAULT_CACHE_EXTENSION,
+} = require('./constants');
 
 /**
  * A wrapper around a `flat-cache` object keyed on filepath and containing
@@ -21,11 +24,7 @@ class ModuleMapCache {
    * Finds an appropriate cache dir (if necessary) and creates the cache on-disk.
    * @param {ModuleMapCacheOptions} [opts]
    */
-  constructor({
-    cacheDir,
-    filename = DEFAULT_MODULE_MAP_CACHE_FILENAME,
-    cwd = process.cwd(),
-  } = {}) {
+  constructor({cacheDir, filename, cwd = process.cwd()} = {}) {
     /**
      * Current working directory
      * @type {string}
@@ -41,7 +40,13 @@ class ModuleMapCache {
      * Filename of cache file
      * @type {string}
      */
-    this.filename = filename;
+    this.filename =
+      filename ||
+      createCacheFilename(
+        DEFAULT_BASE_MODULE_MAP_CACHE_FILENAME,
+        this.cwd,
+        DEFAULT_CACHE_EXTENSION
+      );
 
     /**
      * Underlying cache object
