@@ -150,7 +150,18 @@ class ModuleMap extends Map {
    * @param {Set<string>} [filepaths] - List of files to check for changes
    * @returns {Set<string>}
    */
-  _yieldChangedFiles(filepaths = this.files) {
+  _yieldChangedFiles(filepaths) {
+    if (!filepaths) {
+      filepaths = this.files;
+    } else {
+      for (const filepath of filepaths) {
+        if (!this.has(filepath)) {
+          throw new ReferenceError(
+            `expected file ${filepath} to be known by the module map`
+          );
+        }
+      }
+    }
     const {changed, notFound} = this.fileEntryCache.yieldChangedFiles(
       filepaths
     );
@@ -311,19 +322,25 @@ class ModuleMap extends Map {
     }
 
     const cacheValues = this.moduleMapCache.values();
-    for (const {
-      filename,
-      children,
-      entryFiles,
-      parents,
-    } of this.moduleMapCache.values()) {
-      this.set(
+    try {
+      for (const {
         filename,
-        ModuleMapNode.create(filename, {
-          children: new Set(children),
-          entryFiles: new Set(entryFiles),
-          parents: new Set(parents),
-        })
+        children,
+        entryFiles,
+        parents,
+      } of this.moduleMapCache.values()) {
+        this.set(
+          filename,
+          ModuleMapNode.create(filename, {
+            children: new Set(children),
+            entryFiles: new Set(entryFiles),
+            parents: new Set(parents),
+          })
+        );
+      }
+    } catch (err) {
+      throw new Error(
+        `on-disk module map at ${this.moduleMapCache.filepath} is corrupted; please remove it: ${err}`
       );
     }
     /* istanbul ignore next */
@@ -430,6 +447,9 @@ class ModuleMap extends Map {
    * @returns {Promise<Map<string,Set<string>>>}
    */
   async findAllDependencies(filepaths) {
+    if (!filepaths || !filepaths[Symbol.iterator]) {
+      throw new TypeError('expected a Set or array of filepaths');
+    }
     const dependencies = new Map();
     for (const filepath of filepaths) {
       const resolved = resolveDependencies(path.resolve(this.cwd, filepath), {

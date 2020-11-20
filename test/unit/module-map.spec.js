@@ -541,6 +541,18 @@ describe('class ModuleMap', function () {
           'bar.js': {filename: 'bar.js'},
         });
       });
+
+      describe('when the on-disk module map has been corrupted', function () {
+        beforeEach(function () {
+          /** @type {SinonStub} */ (moduleMap.moduleMapCache.values).returns({
+            z: 'foo',
+          });
+        });
+
+        it('should throw', function () {
+          expect(() => moduleMap.mergeFromCache(), 'to throw');
+        });
+      });
     });
 
     describe('addEntryFile()', function () {
@@ -599,6 +611,7 @@ describe('class ModuleMap', function () {
         });
       });
     });
+
     describe('_hydrate()', function () {
       let nodes;
 
@@ -694,13 +707,140 @@ describe('class ModuleMap', function () {
       });
     });
 
+    describe('toString()', function () {
+      beforeEach(function () {
+        moduleMap.set(
+          'foo.js',
+          ModuleMapNode.create('foo.js', {
+            children: ['/some/child.js', '/some/other/child.js'],
+          })
+        );
+        moduleMap.set('bar.js', ModuleMapNode.create('bar.js'));
+        moduleMap.set(
+          '/some/child.js',
+          ModuleMapNode.create('/some/child.js', {
+            parents: ['foo.js'],
+          })
+        );
+        moduleMap.set(
+          '/some/other/child.js',
+          ModuleMapNode.create('/some/other/child.js', {
+            parents: ['foo.js'],
+          })
+        );
+      });
+
+      it('should return a JSON representation of the ModuleMap', function () {
+        expect(
+          moduleMap.toString(),
+          'to equal snapshot',
+          '{"/some/child.js":{"filename":"/some/child.js","children":[],"parents":["foo.js"],"entryFiles":[]},"/some/other/child.js":{"filename":"/some/other/child.js","children":[],"parents":["foo.js"],"entryFiles":[]},"bar.js":{"filename":"bar.js","children":[],"parents":[],"entryFiles":[]},"foo.js":{"filename":"foo.js","children":["/some/child.js","/some/other/child.js"],"parents":[],"entryFiles":[]}}'
+        );
+      });
+    });
+
+    describe('_yieldChangedFiles()', function () {
+      beforeEach(function () {
+        sinon.stub(moduleMap, 'delete');
+        sinon.stub(moduleMap, 'save');
+      });
+
+      it('should delegate to the file entry cache', function () {
+        moduleMap._yieldChangedFiles();
+        expect(
+          moduleMap.fileEntryCache.yieldChangedFiles,
+          'to have a call satisfying',
+          [moduleMap.files]
+        ).and('was called once');
+      });
+
+      describe('when the file entry cache returns a nonempty list of missing ("not found") files', function () {
+        beforeEach(function () {
+          /** @type {SinonStub} */ (moduleMap.fileEntryCache
+            .yieldChangedFiles).returns({
+            changed: new Set(['baz.js']),
+            notFound: new Set(['foo.js', 'bar.js']),
+          });
+        });
+
+        it('should delete each from the module map', function () {
+          moduleMap._yieldChangedFiles();
+          expect(moduleMap.delete, 'to have calls satisfying', [
+            ['foo.js'],
+            ['bar.js'],
+          ]).and('was called twice');
+        });
+
+        it('should persist the module map', function () {
+          moduleMap._yieldChangedFiles();
+          expect(moduleMap.save, 'was called once');
+        });
+
+        it('should return the list of changed files', function () {
+          expect(
+            moduleMap._yieldChangedFiles(),
+            'to equal',
+            new Set(['baz.js'])
+          );
+        });
+      });
+
+      describe('when the file entry cache return an empty list of missing ("not found") files', function () {
+        beforeEach(function () {
+          /** @type {SinonStub} */ (moduleMap.fileEntryCache
+            .yieldChangedFiles).returns({
+            changed: new Set(['baz.js']),
+            notFound: new Set(),
+          });
+        });
+
+        it('should not persist the module map', function () {
+          moduleMap._yieldChangedFiles();
+          expect(moduleMap.save, 'was not called');
+        });
+
+        it('should return the list of changed files', function () {
+          expect(
+            moduleMap._yieldChangedFiles(),
+            'to equal',
+            new Set(['baz.js'])
+          );
+        });
+      });
+
+      describe('when provided an explicit list of files', function () {
+        describe('when a filepath provided is unknown to the module map', function () {
+          it('should throw', function () {
+            expect(
+              () => moduleMap._yieldChangedFiles(new Set(['quux.js'])),
+              'to throw',
+              expect.it('to be a', ReferenceError)
+            );
+          });
+        });
+
+        describe('when all filepaths are known to the module map', function () {
+          it('should provide the list to the file entry cache', function () {
+            moduleMap.set('quux.js', ModuleMapNode.create('quux.js'));
+            moduleMap.set('baz.js', ModuleMapNode.create('baz.js'));
+            moduleMap._yieldChangedFiles(new Set(['quux.js', 'baz.js']));
+            expect(
+              moduleMap.fileEntryCache.yieldChangedFiles,
+              'to have a call satisfying',
+              [new Set(['quux.js', 'baz.js'])]
+            ).and('was called once');
+          });
+        });
+      });
+    });
+
     describe('findAffectedFilesForChangedFiles()', function () {
       beforeEach(function () {
         sinon.stub(moduleMap, 'markFileAsChanged');
         sinon.stub(moduleMap, '_yieldChangedFiles').returns(new Set());
         sinon.stub(moduleMap, '_hydrate').resolves();
         sinon.stub(moduleMap, '_findAffectedFiles').callsFake((value) =>
-          value.size
+          new Set(value).size
             ? {
                 entryFiles: new Set(['foo.js']),
                 allFiles: new Set(['foo.js', 'bar.js']),
@@ -959,6 +1099,77 @@ describe('class ModuleMap', function () {
             'to throw',
             expect.it('to be a', TypeError)
           );
+        });
+      });
+    });
+
+    describe('findAllDependencies()', function () {
+      describe('when not provided any parameters', function () {
+        it('should reject with a TypeError', async function () {
+          return expect(
+            // @ts-ignore
+            moduleMap.findAllDependencies(),
+            'to be rejected with',
+            expect.it('to be a', TypeError)
+          );
+        });
+      });
+
+      describe('when provided a non-iterable parameter', function () {
+        it('should reject with TypeError', async function () {
+          return expect(
+            // @ts-ignore
+            moduleMap.findAllDependencies(42),
+            'to be rejected with',
+            expect.it('to be a', TypeError)
+          );
+        });
+      });
+
+      describe('when provided an empty iterable parameter', function () {
+        it('should resolve with an empty Map', async function () {
+          return expect(
+            moduleMap.findAllDependencies([]),
+            'to be fulfilled with',
+            new Map()
+          );
+        });
+      });
+
+      describe('when provided a Set of filepaths', function () {
+        it('should return a Map of each filepath to its set of dependencies', async function () {
+          stubs.resolver.resolveDependencies
+            .onFirstCall()
+            .returns(new Set(['baz.js']));
+          stubs.resolver.resolveDependencies
+            .onSecondCall()
+            .returns(new Set(['quux.js']));
+          return expect(
+            moduleMap.findAllDependencies(['foo.js', 'bar.js']),
+            'to be fulfilled with',
+            new Map([
+              ['foo.js', new Set(['baz.js'])],
+              ['bar.js', new Set(['quux.js'])],
+            ])
+          );
+        });
+
+        it('should call Resolver.resolveDependencies using absolute filepath for each filepath', async function () {
+          const opts = {
+            cwd: moduleMap.cwd,
+            ignore: moduleMap.ignore,
+            tsConfigPath: moduleMap.tsConfigPath,
+            webpackConfigPath: moduleMap.webpackConfigPath,
+          };
+          await moduleMap.findAllDependencies(['foo.js', 'bar.js']);
+          expect(
+            stubs.resolver.resolveDependencies,
+            'to have calls satisfying',
+            [
+              [path.resolve(moduleMap.cwd, 'foo.js'), opts],
+              [path.resolve(moduleMap.cwd, 'bar.js'), opts],
+            ]
+          ).and('was called twice');
         });
       });
     });
