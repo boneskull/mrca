@@ -3,9 +3,9 @@
 /**
  * Class used internally by {@link ModuleMap} which tracks the relationship between parents and children.
  *
- * All "references" are by filename (string); there are no references to other {@link ModuleMap}s.
- *
  * You should not need to create one of these; {@link ModuleMap} will do it for you.
+ *
+ * Note: All "references" are by filename (string); there are no references to other {@link ModuleMapNode}s. Using references would complicate serialization, and we'd still need to maintain integrity (e.g., no `ModuleMapNode` should be referenced which is not within the values of a `ModuleMap`). Regardless, we may want to move to this strategy in future development.
  */
 class ModuleMapNode {
   /**
