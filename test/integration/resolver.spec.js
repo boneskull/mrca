@@ -69,6 +69,10 @@ describe('dependency resolution', function () {
 
   describe('when provided a TypeScript file', function () {
     describe('when provided a path to a TS config file', function () {
+      beforeEach(function () {
+        stubs.existsSync.returns(true);
+      });
+
       it('should find dependencies', function () {
         // this should _actually work_; no magic stubs here
         expect(
@@ -183,6 +187,7 @@ describe('dependency resolution', function () {
       let result;
 
       beforeEach(function () {
+        stubs.existsSync.returns(true);
         const fixture = resolveFixturePath('webpack.fixture.js');
         result = resolveDependencies(fixture, {
           webpackConfigPath: resolveFixturePath('webpack.config.fixture.js'),
@@ -190,7 +195,9 @@ describe('dependency resolution', function () {
       });
 
       it('should not look for a default Webpack config file', function () {
-        expect(stubs.existsSync, 'was not called');
+        expect(stubs.existsSync, 'not to have calls satisfying', [
+          constants.DEFAULT_WEBPACK_CONFIG_FILENAME,
+        ]);
       });
 
       it('should find dependencies as declared by webpack config', function () {

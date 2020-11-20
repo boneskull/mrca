@@ -80,7 +80,10 @@ class Resolver extends EventEmitter {
    * @returns {Set<string>}
    */
   resolveDependencies(filepath) {
-    // `paperwork` finds referenced modules in source files
+    if (!filepath) {
+      throw new TypeError('expected nonempty string parameter `filepath`');
+    }
+    filepath = resolve(this.cwd, filepath);
     /* istanbul ignore next */
     debug('looking for partials in %s', filepath);
     /**
@@ -263,7 +266,7 @@ class Resolver extends EventEmitter {
     if (this.webpackConfigPath) {
       if (!existsSync(this.webpackConfigPath)) {
         throw new Error(
-          `provided webpack config path ${this.webpackConfigPath} does not exist`
+          `provided webpack config path ${this.webpackConfigPath} not found`
         );
       }
     } else {

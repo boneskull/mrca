@@ -57,6 +57,60 @@ describe('resolver', function () {
         resolver = new Resolver();
       });
 
+      describe('resolveDependencies()', function () {
+        describe('when called without a filepath parameter', function () {
+          it('should throw');
+        });
+
+        describe('when called with a filepath parameter', function () {
+          it('should get the partials from precinct');
+
+          describe('when precinct throws', function () {
+            it('should return an empty set');
+          });
+
+          describe('when a TS config has been found', function () {
+            it('should not do naive resolution');
+
+            it('should emit event EVENT_DEPENDENCY for the config file');
+
+            it('should return a set containing the TS config path');
+          });
+
+          describe('when a webpack config has been found', function () {
+            it('should not do naive resolution');
+
+            it('should emit event EVENT_DEPENDENCY for the config file');
+
+            it('should return a set containing the TS config path');
+          });
+
+          describe('when an unknown file extension is present', function () {
+            it('should not do naive resolution');
+
+            it('should ask `filing-cabinet` to resolve the file');
+          });
+
+          describe('when no webpack config nor TS config is found and the file is javascript', function () {
+            it('should attempt naive resolution');
+
+            it('should return a set containing the naively-resolved partials');
+
+            describe('when naive resolution does not resolve all partials', function () {
+              it(
+                'should ask `filing-cabinet` to resolve the remaining partials'
+              );
+
+              it(
+                'should return a set containing both naively-resolved partials and `filing-cabinet`-resolved partials'
+              );
+            });
+          });
+
+          it('should emit event EVENT_RESOLVE_DEPENDENCIES_COMPLETE once');
+        });
+      });
+
       describe('_tryFindWebpackConfigPath()', function () {
         describe('when the Resolver has no explicit webpack config filepath', function () {
           beforeEach(function () {
@@ -461,6 +515,42 @@ describe('resolver', function () {
                 new Set()
               );
             });
+          });
+        });
+      });
+    });
+
+    describe('static method', function () {
+      describe('create()', function () {
+        it('should return a Resolver', function () {
+          expect(Resolver.create(), 'to be a', Resolver);
+        });
+      });
+
+      describe('resolveDependencies()', function () {
+        describe('when provided a filepath', function () {
+          beforeEach(function () {
+            sinon
+              .stub(Resolver.prototype, 'resolveDependencies')
+              .returns(new Set(['/path/to/foo.js']));
+          });
+          it('should resolve the dependencies for the filepath', function () {
+            expect(
+              Resolver.resolveDependencies('foo.js'),
+              'to equal',
+              new Set(['/path/to/foo.js'])
+            );
+          });
+        });
+
+        describe('when not provided a filepath', function () {
+          beforeEach(function () {
+            sinon.stub(Resolver.prototype, 'resolveDependencies').throws();
+          });
+
+          it('should throw', function () {
+            // @ts-ignore
+            expect(() => Resolver.resolveDependencies(), 'to throw');
           });
         });
       });
