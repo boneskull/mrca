@@ -1,7 +1,7 @@
 'use strict';
 const {paperwork} = require('precinct');
 const cabinet = require('filing-cabinet');
-const path = require('path');
+const {resolve, extname, dirname} = require('path');
 const multimatch = require('multimatch');
 const debug = require('debug')('mrca:resolver');
 const {existsSync} = require('fs');
@@ -76,6 +76,7 @@ class Resolver extends EventEmitter {
    * Returns a `Set` of all resolved dependency paths for `filepath`
    * @param {string} filepath - Filepath
    * @fires Resolver#dependency
+   * @public
    * @returns {Set<string>}
    */
   resolveDependencies(filepath) {
@@ -99,7 +100,7 @@ class Resolver extends EventEmitter {
       return new Set();
     }
 
-    const extname = path.extname(filepath);
+    const extension = extname(filepath);
     /**
      * @type {Set<string>}
      * @ignore
@@ -124,10 +125,10 @@ class Resolver extends EventEmitter {
      */
     let webpackConfigPath;
 
-    if (constants.EXTENSIONS_TS.has(extname)) {
+    if (constants.EXTENSIONS_TS.has(extension)) {
       /* istanbul ignore next */
       debug('file %s is probably TS', filepath);
-      const foundTsConfigPath = this.tryFindTSConfigPath();
+      const foundTsConfigPath = this._tryFindTSConfigPath();
       if (foundTsConfigPath) {
         resolvedDeps.add(foundTsConfigPath);
         this.emit(constants.EVENT_DEPENDENCY, {
@@ -137,10 +138,10 @@ class Resolver extends EventEmitter {
         shouldDoNaiveResolution = false;
         tsConfigPath = foundTsConfigPath;
       }
-    } else if (constants.EXTENSIONS_JS.has(extname)) {
+    } else if (constants.EXTENSIONS_JS.has(extension)) {
       /* istanbul ignore next */
       debug('file %s is probably JS', filepath);
-      const foundWebpackConfigPath = this.tryFindWebpackConfigPath();
+      const foundWebpackConfigPath = this._tryFindWebpackConfigPath();
       if (foundWebpackConfigPath) {
         resolvedDeps.add(foundWebpackConfigPath);
         this.emit(constants.EVENT_DEPENDENCY, {
@@ -150,6 +151,10 @@ class Resolver extends EventEmitter {
         shouldDoNaiveResolution = false;
         webpackConfigPath = foundWebpackConfigPath;
       }
+    } else {
+      // I _think_ this is right; if it's not a .js file then we
+      // want to let filing-cabinet handle it.
+      shouldDoNaiveResolution = false;
     }
 
     /**
@@ -164,7 +169,7 @@ class Resolver extends EventEmitter {
      */
     let unresolvedPartials;
     if (shouldDoNaiveResolution) {
-      const naiveResult = this.tryNaivelyResolvePartials(
+      const naiveResult = this._tryNaivelyResolvePartials(
         filepath,
         unfilteredPartials
       );
@@ -196,10 +201,10 @@ class Resolver extends EventEmitter {
         tsConfig: tsConfigPath,
         noTypeDefinitions: true,
       };
-      filingCabinetResolvedDeps = this.resolvePartials(
+      filingCabinetResolvedDeps = this._resolvePartials(
         unresolvedPartials,
-        cabinetOptions,
-        filepath
+        filepath,
+        cabinetOptions
       );
     }
 
@@ -214,18 +219,22 @@ class Resolver extends EventEmitter {
   /**
    * Given a set of partial module names/paths, return an object containing a Set of paths to those that were found
    * via `require.resolve()`, and another Set containing partials which could not be found this way
-   * @param {string} filepath
-   * @param {Set<string>} unfilteredPartials
-   * @private
+   * @param {string} filepath - Filepath of module containing partials
+   * @param {Set<string>} [unfilteredPartials] - List of partials, if any
+   * @ignore
    * @returns {{naivelyResolvedPartials: Set<string>, unresolvedPartials: Set<string>}}
    */
-  tryNaivelyResolvePartials(filepath, unfilteredPartials) {
+  _tryNaivelyResolvePartials(filepath, unfilteredPartials = new Set()) {
+    if (!filepath) {
+      throw new TypeError('expected a nonempty string filepath');
+    }
+    filepath = resolve(this.cwd, filepath);
     const naivelyResolvedPartials = new Set();
     const ignore = [...this.ignore];
     const unresolvedPartials = [...unfilteredPartials].reduce(
       (acc, partial) => {
         try {
-          const resolved = resolveFrom(path.dirname(filepath), partial);
+          const resolved = resolveFrom(dirname(filepath), partial);
           if (multimatch(resolved, ignore).length) {
             /* istanbul ignore next */
             debug('%s is ignored', filepath);
@@ -247,16 +256,24 @@ class Resolver extends EventEmitter {
    * Configures `filing-cabinet` to resolve modules referenced in JS files.
    *
    * Does not support RequireJS/AMD
-   * @private
+   * @ignore
    * @returns {string|void} Object containing path to a webpack config file, if any
    */
-  tryFindWebpackConfigPath() {
-    if (!this.webpackConfigPath) {
-      const defaultWebpackConfigPath = path.join(
+  _tryFindWebpackConfigPath() {
+    if (this.webpackConfigPath) {
+      if (!existsSync(this.webpackConfigPath)) {
+        throw new Error(
+          `provided webpack config path ${this.webpackConfigPath} does not exist`
+        );
+      }
+    } else {
+      const defaultWebpackConfigPath = resolve(
         this.cwd,
         constants.DEFAULT_WEBPACK_CONFIG_FILENAME
       );
       if (existsSync(defaultWebpackConfigPath)) {
+        /* istanbul ignore next */
+        debug('found default webpack config at %s', defaultWebpackConfigPath);
         return defaultWebpackConfigPath;
       }
     }
@@ -267,14 +284,24 @@ class Resolver extends EventEmitter {
    * Given a set of partial module names/paths, return an array of resolved paths via `filing-cabinet`'s static analysis
    *
    * @param {Set<string>} unresolvedPartials - A Set of partials
-   * @param {Partial<FilingCabinetOptions>} cabinetOptions  - Options for `filing-cabinet`
    * @param {string} filepath - Filename for `filing-cabinet` options
+   * @param {Partial<FilingCabinetOptions>} [cabinetOptions]  - Options for `filing-cabinet`
    * @returns {Set<string>} Resolved paths
-   * @private
+   * @ignore
    */
-  resolvePartials(unresolvedPartials, cabinetOptions, filepath) {
+  _resolvePartials(unresolvedPartials, filepath, cabinetOptions = {}) {
     const resolvedPartials = new Set();
     const ignore = [...this.ignore];
+    if (!unresolvedPartials || !unresolvedPartials[Symbol.iterator]) {
+      throw new TypeError('expected iterable parameter `unresolvedPartials`');
+    }
+    if (!filepath) {
+      // if `unresolvedPartials` is _empty_, this is not strictly necessary
+      throw new TypeError(
+        'expected nonempty string `filepath` for second parameter'
+      );
+    }
+    filepath = resolve(this.cwd, filepath);
     for (const partial of unresolvedPartials) {
       /* istanbul ignore next */
       debug(
@@ -282,25 +309,31 @@ class Resolver extends EventEmitter {
         partial,
         cabinetOptions
       );
-      const resolved = cabinet({
-        partial,
-        filename: filepath,
-        directory: this.cwd,
-        ...cabinetOptions,
-      });
-      if (resolved === '') {
-        /* istanbul ignore next */
-        debug('filing-cabinet could not resolve module "%s"!', partial);
-      } else {
-        if (multimatch(resolved, ignore).length) {
+      try {
+        const resolved = cabinet({
+          partial,
+          filename: filepath,
+          directory: this.cwd,
+          ...cabinetOptions,
+        });
+        if (!resolved) {
           /* istanbul ignore next */
-          debug('%s is ignored', resolved);
+          debug('filing-cabinet could not resolve module "%s"!', partial);
         } else {
-          /* istanbul ignore next */
-          debug('filing-cabinet resolved %s: %o', partial, resolved);
-          resolvedPartials.add(resolved);
-          this.emit(constants.EVENT_DEPENDENCY, {filepath, resolved});
+          if (multimatch(resolved, ignore).length) {
+            /* istanbul ignore next */
+            debug('%s is ignored', resolved);
+          } else {
+            /* istanbul ignore next */
+            debug('filing-cabinet resolved %s: %o', partial, resolved);
+            resolvedPartials.add(resolved);
+            this.emit(constants.EVENT_DEPENDENCY, {filepath, resolved});
+          }
         }
+      } catch (err) {
+        throw new Error(
+          `error when attempting to resolve partial ${partial} from file ${filepath}: ${err}`
+        );
       }
     }
     return resolvedPartials;
@@ -308,12 +341,18 @@ class Resolver extends EventEmitter {
 
   /**
    * Configures `filing-cabinet` to resolve modules referenced in TS files
-   * @private
+   * @ignore
    * @returns {string|void} Object containing path to a TS config file, if any
    */
-  tryFindTSConfigPath() {
-    if (!this.tsConfigPath) {
-      const defaultTsConfigPath = path.join(
+  _tryFindTSConfigPath() {
+    if (this.tsConfigPath) {
+      if (!existsSync(this.tsConfigPath)) {
+        throw new Error(
+          `provided TS config path ${this.tsConfigPath} not found`
+        );
+      }
+    } else {
+      const defaultTsConfigPath = resolve(
         this.cwd,
         constants.DEFAULT_TS_CONFIG_FILENAME
       );
@@ -332,7 +371,15 @@ class Resolver extends EventEmitter {
    * @param {Partial<ResolveDependenciesOptions>} [opts] - Options
    */
   static resolveDependencies(filepath, opts = {}) {
-    return new Resolver(opts).resolveDependencies(filepath);
+    return Resolver.create(opts).resolveDependencies(filepath);
+  }
+
+  /**
+   * Instantiates a new {@link Resolver}
+   * @param {Partial<ResolveDependenciesOptions>} [opts] - Options
+   */
+  static create(opts = {}) {
+    return new Resolver(opts);
   }
 }
 
