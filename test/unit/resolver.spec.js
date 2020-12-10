@@ -22,8 +22,7 @@ describe('resolver', function () {
         debug: Object.assign(sinon.stub().returns(sinon.stub()), {
           enabled: sinon.stub().returns(false),
         }),
-        precinct: {paperwork: sinon.stub()},
-        'filing-cabinet': sinon.stub(),
+        'dependency-tree': sinon.stub(),
         multimatch: sinon.stub().returns([]),
         fs: {
           existsSync: sinon.stub(),
@@ -265,7 +264,7 @@ describe('resolver', function () {
         });
       });
 
-      describe('_tryNaivelyResolvePartials', function () {
+      describe.skip('_tryNaivelyResolvePartials', function () {
         beforeEach(function () {
           stubs.path.dirname.returns('/some/path');
         });
@@ -401,7 +400,7 @@ describe('resolver', function () {
         });
       });
 
-      describe('_resolvePartials', function () {
+      describe.skip('_resolvePartials', function () {
         describe('when called without parameters', function () {
           it('should throw', function () {
             expect(

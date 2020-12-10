@@ -3,7 +3,6 @@
 const sinon = require('sinon');
 const rewiremock = require('rewiremock/node');
 const path = require('path');
-const escapeRegexp = require('escape-string-regexp');
 const expect = require('../expect');
 const escapeStringRegexp = require('escape-string-regexp');
 
@@ -80,8 +79,13 @@ describe('dependency resolution', function () {
             tsConfigPath: resolveFixturePath('tsconfig.fixture.json'),
             cwd: path.join(__dirname, '..', '..'),
           }),
-          'to satisfy',
-          new Set([/debug/, /tsconfig\.fixture\.json/])
+          'as array',
+          'to have an item satisfying',
+          /debug/
+        ).and(
+          'as array',
+          'to have an item satisfying',
+          /tsconfig\.fixture\.json/
         );
       });
 
@@ -128,13 +132,13 @@ describe('dependency resolution', function () {
             resolveDependencies(fixture, {
               cwd: path.dirname(fixture), // cwd is needed to find default config file
             }),
-            'to satisfy',
-            new Set([
-              /node_modules\/debug/,
-              new RegExp(
-                escapeStringRegexp(constants.DEFAULT_TS_CONFIG_FILENAME)
-              ),
-            ])
+            'as array',
+            'to have an item satisfying',
+            /node_modules\/debug/
+          ).and(
+            'as array',
+            'to have an item satisfying',
+            new RegExp(escapeStringRegexp(constants.DEFAULT_TS_CONFIG_FILENAME))
           );
         });
       });
@@ -171,14 +175,21 @@ describe('dependency resolution', function () {
         // a different `debug`
         expect(
           result,
-          'to satisfy',
-          new Set([/node_modules\/debug/, /webpack-dep\.fixture\.js/])
+          'as array',
+          'to have an item satisfying',
+          new RegExp(escapeStringRegexp(`node_modules${path.sep}debug`))
+        ).and(
+          'as array',
+          'to have an item satisfying',
+          /webpack-dep\.fixture\.js/
         );
       });
 
       it('should look for a Webpack config file in cwd', function () {
         expect(stubs.existsSync, 'to have a call satisfying', [
-          new RegExp(escapeRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)),
+          new RegExp(
+            escapeStringRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)
+          ),
         ]);
       });
     });
@@ -205,7 +216,9 @@ describe('dependency resolution', function () {
           result,
           'to satisfy',
           new Set([
-            new RegExp(escapeRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)),
+            new RegExp(
+              escapeStringRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)
+            ),
             /mode_nodules\/debug/,
             /webpack-dep\.fixture\.js/,
           ])
@@ -229,7 +242,9 @@ describe('dependency resolution', function () {
           new Set([
             /webpack-dep\.fixture\.js/,
             /debug/,
-            new RegExp(escapeRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)),
+            new RegExp(
+              escapeStringRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)
+            ),
           ])
         );
       });

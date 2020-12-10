@@ -22,3 +22,5 @@ exports.DEFAULT_BASE_FILE_ENTRY_CACHE_FILENAME = 'file-entry';
  * @memberof constants
  */
 exports.DEFAULT_BASE_MODULE_MAP_CACHE_FILENAME = 'module-map';
+
+exports.DEFAULT_BASE_MODULE_GRAPH_FILENAME = 'module-graph';

@@ -1,4 +1,6 @@
 'use strict';
+
+const {MRCA} = require('./mrca');
 const {ThreadedModuleMap} = require('./threaded-module-map');
 const {ModuleMap} = require('./module-map');
 const {ModuleMapNode} = require('./module-map-node');
@@ -14,6 +16,7 @@ exports.FileEntryCache = FileEntryCache;
 exports.ModuleMapCache = ModuleMapCache;
 exports.constants = constants;
 exports.Resolver = Resolver;
+exports.MRCA = MRCA;
 
 /**
  * Creates a module map.  Use option `threaded: true` to create a module map which

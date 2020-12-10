@@ -49,7 +49,7 @@ exports.findCacheDir = ({dir, cwd = process.cwd()} = {}) => {
 };
 
 exports.createCacheFilename = (base, cwd, ext) =>
-  `${base}_${slug(cwd, {replacement: '-'})}.${ext}`;
+  `${base}_${slug(cwd, {replacement: '-', lower: false})}.${ext}`;
 
 /**
  * Options for {@link findCacheDir}.
