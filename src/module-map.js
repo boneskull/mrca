@@ -162,15 +162,13 @@ class ModuleMap extends Map {
         }
       }
     }
-    const {changed, notFound} = this.fileEntryCache.yieldChangedFiles(
-      filepaths
-    );
-    if (notFound.size) {
-      for (const notFoundFile of notFound) {
-        this.delete(notFoundFile);
+    const {changed, missing} = this.fileEntryCache.yieldChangedFiles(filepaths);
+    if (missing.size) {
+      for (const missingFile of missing) {
+        this.delete(missingFile);
       }
       this.save();
-      debug('purged %d files from module map cache', notFound.size);
+      debug('purged %d files from module map cache', missing.size);
     }
     return changed;
   }

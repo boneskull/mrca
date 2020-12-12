@@ -6,9 +6,10 @@ const {ModuleGraph} = require('./module-graph');
 const {FileEntryCache} = require('./file-entry-cache');
 const {resolveDependencies} = require('./resolver');
 const path = require('path');
+const {EventEmitter} = require('events');
 const sortKeys = require('sort-keys');
 
-class MRCA {
+class MRCA extends EventEmitter {
   /**
    *
    * @param {MRCAOptions} opts
@@ -25,6 +26,7 @@ class MRCA {
     webpackConfigPath,
     useRealPaths,
   } = {}) {
+    super();
     /**
      * Current working directory
      * @type {string}
@@ -49,17 +51,11 @@ class MRCA {
 
     /**
      * Cache of the file entry cache (tracks changes)
-     * @type {FileEntryCache}
      */
-    this.fileEntryCache = undefined;
-
-    Object.defineProperty(this, 'fileEntryCache', {
-      value: FileEntryCache.create({
-        filename: fileEntryCacheFilename,
-        cacheDir: this.cacheDir,
-        cwd: this.cwd,
-      }),
-      enumerable: false,
+    this.fileEntryCache = FileEntryCache.create({
+      filename: fileEntryCacheFilename,
+      cacheDir: this.cacheDir,
+      cwd: this.cwd,
     });
 
     /**
@@ -89,14 +85,6 @@ class MRCA {
      */
     this.webpackConfigPath = webpackConfigPath;
 
-    this.initialized = undefined;
-    Object.defineProperty(this, 'initialized', {
-      value: false,
-      writable: false,
-      enumerable: false,
-      configurable: true,
-    });
-
     /**
      * When this resolves, the module map has been hydrated.
      * @type {Promise<void>}
@@ -104,23 +92,17 @@ class MRCA {
     this.ready = undefined;
     Object.defineProperty(this, 'ready', {
       value: this._init({reset}).then(() => {
-        Object.defineProperty(this, 'initialized', {
-          value: true,
-          writable: false,
-          enumerable: false,
-          configurable: false,
-        });
+        try {
+          this.emit(MRCA.events.READY);
+        } catch (err) {
+          this.emit(MRCA.events.ERROR, err);
+        }
       }),
       enumerable: false,
     });
   }
 
-  async _init({reset = false, force = false} = {}) {
-    if (!force && this.initialized) {
-      // XXX: needs error code
-      throw new Error('already initialized');
-    }
-
+  async _init({reset = false} = {}) {
     if (reset) {
       this.moduleGraph.reset();
       this.fileEntryCache.reset();
@@ -135,12 +117,12 @@ class MRCA {
       }
     }
 
-    const {changed, notFound} = this._yieldChangedFiles(this.entryFiles);
+    const {changed, missing} = this._yieldChangedFiles(this.entryFiles);
 
     const changedFilepaths = new Set([
       ...newEntryFiles,
       ...changed,
-      ...notFound,
+      ...missing,
     ]);
 
     if (changedFilepaths.size) {
@@ -150,6 +132,10 @@ class MRCA {
     }
   }
 
+  /**
+   *
+   * @param {Set<string>|string[]} filepaths
+   */
   async _hydrate(filepaths) {
     let stack = [...filepaths];
 
@@ -207,19 +193,17 @@ class MRCA {
         throw new ReferenceError(`expected file ${filepath} to be known`);
       }
     }
-    const {changed, notFound} = this.fileEntryCache.yieldChangedFiles(
-      filepaths
-    );
-    if (notFound.size) {
-      for (const notFoundFile of notFound) {
-        this.moduleGraph.markMissing(notFoundFile);
-        debug('marked %s as missing', notFoundFile);
+    const {changed, missing} = this.fileEntryCache.yieldChangedFiles(filepaths);
+    if (missing.size) {
+      for (const missingFile of missing) {
+        this.moduleGraph.markMissing(missingFile);
+        debug('marked %s as missing', missingFile);
       }
       this.save();
     } else if (changed.size) {
       this.save();
     }
-    return {changed, notFound};
+    return {changed, missing};
   }
 
   /**
@@ -237,6 +221,10 @@ class MRCA {
     return this;
   }
 
+  /**
+   *
+   * @param {string} filepath
+   */
   has(filepath) {
     return this.moduleGraph.has(filepath);
   }
@@ -278,13 +266,28 @@ class MRCA {
       this.markFileChanged(knownChangedFile);
     }
 
-    const {changed, notFound} = this._yieldChangedFiles();
+    const {changed, missing} = this._yieldChangedFiles();
 
+    const untrackedFilepaths = this.moduleGraph.filterUntrackedFiles([
+      ...changed,
+      ...missing,
+    ]);
+    if (untrackedFilepaths.size) {
+      /* istanbul ignore next */
+      debug(
+        'found untracked changed (or missing) files: %o',
+        untrackedFilepaths
+      );
+    }
     await this._hydrate(changed);
 
-    return this._findAffectedFiles([...changed, ...notFound]);
+    return this._findAffectedFiles([...changed, ...missing]);
   }
 
+  /**
+   *
+   * @param {string} filepath
+   */
   markFileChanged(filepath) {
     this.fileEntryCache.markFileChanged(filepath);
     return this;
@@ -358,7 +361,10 @@ class MRCA {
   toJSON() {
     return sortKeys(
       {
-        ...this,
+        cacheDir: this.cacheDir,
+        cwd: this.cwd,
+        tsConfigPath: this.tsConfigPath,
+        webpackConfigPath: this.webpackConfigPath,
         entryFiles: [...this.entryFiles],
         ignore: [...this.ignore],
         moduleGraph: this.moduleGraph.toJSON(),
@@ -372,6 +378,14 @@ class MRCA {
     return this;
   }
 }
+
+/**
+ * @enum {string}
+ */
+MRCA.events = {
+  READY: 'ready',
+  ERROR: 'error',
+};
 
 exports.MRCA = MRCA;
 

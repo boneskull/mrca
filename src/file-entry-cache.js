@@ -89,21 +89,22 @@ class FileEntryCache {
    * @returns {FilesInfo}
    */
   yieldChangedFiles(filepaths) {
-    const {changedFiles, notFoundFiles} = this.cache.analyzeFiles([
-      ...filepaths,
-    ]);
+    const {
+      changedFiles,
+      notFoundFiles: missingFiles,
+    } = this.cache.analyzeFiles([...filepaths]);
 
     /* istanbul ignore next */
     debug(
       'found %d/%d changed files w/ %d not found',
       changedFiles.length,
       filepaths.size,
-      notFoundFiles.length
+      missingFiles.length
     );
     if (changedFiles.length) {
-      this.save(new Set([...changedFiles, ...notFoundFiles]));
+      this.save(new Set([...changedFiles, ...missingFiles]));
     }
-    return {changed: new Set(changedFiles), notFound: new Set(notFoundFiles)};
+    return {changed: new Set(changedFiles), missing: new Set(missingFiles)};
   }
 
   /**
@@ -146,5 +147,5 @@ exports.FileEntryCache = FileEntryCache;
 /**
  * @typedef {Object} FilesInfo
  * @property {Set<string>} changed - List of changed files
- * @property {Set<string>} notFound - List of files not found
+ * @property {Set<string>} missing - List of files not found
  */

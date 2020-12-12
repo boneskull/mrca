@@ -20,14 +20,9 @@ const constants = {
   DEFAULT_TS_CONFIG_FILENAME: 'tsconfig.json',
 
   /**
-   * Event emitted by {@link Resolver} when it has resolved a dependency
+   * Event emitted by {@link Resolver} when it has resolved dependencies for a file
    */
-  EVENT_DEPENDENCY: 'dependency',
-
-  /**
-   * Event emitted by {@link Resolver} when it has finished resolving dependencies for a file
-   */
-  EVENT_RESOLVE_DEPENDENCIES_COMPLETE: 'resolve-dependencies-complete',
+  EVENT_RESOLVED_DEPENDENCIES: 'resolved-dependencies',
 
   /**
    * List of extensions to interpret as TypeScript
@@ -65,21 +60,18 @@ class Resolver extends EventEmitter {
     // this.ignore = new Set(globby.sync([...ignore], {cwd: this.cwd}));
     /* istanbul ignore next */
     if (require('debug').enabled('mrca:resolver')) {
-      this.on(constants.EVENT_DEPENDENCY, (data) => {
-        debug('event EVENT_DEPENDENCY emitted with data %o', data);
-      });
-      this.on(constants.EVENT_RESOLVE_DEPENDENCIES_COMPLETE, (data) => {
-        debug('event EVENT_RESOLVE_DEPENDENCIES_COMPLETE w/ data %o', data);
+      this.on(constants.EVENT_RESOLVED_DEPENDENCIES, (data) => {
+        debug('event EVENT_RESOLVED_DEPENDENCIES emitted with data %o', data);
       });
     }
+    debug('instantiated resolver working from cwd %s', this.cwd);
   }
 
   /**
    * Returns a `Set` of all resolved dependency paths for `filepath`
    * @param {string} filepath - Filepath
-   * @fires Resolver#dependency
    * @public
-   * @returns {{resolved: Set<string>, missing: Set<string>}}
+   * @returns {ResolvedDependencies}
    */
   resolveDependencies(filepath) {
     if (!filepath) {
@@ -100,17 +92,18 @@ class Resolver extends EventEmitter {
     let webpackConfigPath;
 
     const extension = extname(filepath);
+    /**
+     * @type {Set<string>}
+     * @ignore
+     */
     const deps = new Set();
+
     if (constants.EXTENSIONS_TS.has(extension)) {
       /* istanbul ignore next */
       debug('file %s is probably TS', filepath);
       const foundTsConfigPath = this._tryFindTSConfigPath();
       if (foundTsConfigPath) {
         deps.add(foundTsConfigPath);
-        this.emit(constants.EVENT_DEPENDENCY, {
-          filepath,
-          resolved: foundTsConfigPath,
-        });
         tsConfigPath = foundTsConfigPath;
       }
     } else if (constants.EXTENSIONS_JS.has(extension)) {
@@ -119,15 +112,23 @@ class Resolver extends EventEmitter {
       const foundWebpackConfigPath = this._tryFindWebpackConfigPath();
       if (foundWebpackConfigPath) {
         deps.add(foundWebpackConfigPath);
-        this.emit(constants.EVENT_DEPENDENCY, {
-          filepath,
-          resolved: foundWebpackConfigPath,
-        });
         webpackConfigPath = foundWebpackConfigPath;
       }
     }
 
     try {
+      debug('calling dependencyTree.toList with options %j', {
+        tsConfig: tsConfigPath,
+        webpackConfig: webpackConfigPath,
+        directory: this.cwd,
+        filename: filepath,
+        filter: (filepath) => {
+          debug('calling multimatch against %s for %o', filepath, ignore);
+          return !multimatch(filepath, ignore).length;
+        },
+        nonExistent,
+        visited: this._visited,
+      });
       const tree = dependencyTree.toList({
         tsConfig: tsConfigPath,
         webpackConfig: webpackConfigPath,
@@ -141,9 +142,15 @@ class Resolver extends EventEmitter {
         visited: this._visited,
       });
       debug('TREE: %o', tree);
-      const dependencies = new Set([...deps, ...tree]);
-      dependencies.delete(filepath);
-      return {resolved: dependencies, missing: new Set(nonExistent)};
+      const resolved = new Set([...deps, ...tree]);
+      resolved.delete(filepath);
+      const missing = new Set(nonExistent);
+      this.emit(constants.EVENT_RESOLVED_DEPENDENCIES, {
+        filepath,
+        resolved,
+        missing,
+      });
+      return {resolved, missing};
     } catch (err) {
       debug(err);
     }
@@ -470,4 +477,10 @@ exports.resolveDependencies = Resolver.resolveDependencies;
  * Emitted when the {@link Resolver} resolves a dependency for a file
  * @event Resolver#dependency
  * @type {DependencyData}
+ */
+
+/**
+ * @typedef {Object} ResolvedDependencies
+ * @property {Set<string>} resolved - List of resolved deps
+ * @property {Set<string>} missing - List of unresolvable deps
  */

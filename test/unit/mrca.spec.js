@@ -6,17 +6,20 @@ const sinon = require('sinon');
 const expect = require('../expect');
 const sortKeys = require('sort-keys');
 
-describe('class MRCA', function() {
+describe('class MRCA', function () {
   let stubs;
   let mocks;
 
+  /**
+   * @type {typeof import('../../src/mrca').MRCA}
+   */
   let MRCA;
 
-  afterEach(function() {
+  afterEach(function () {
     sinon.restore();
   });
 
-  beforeEach(function() {
+  beforeEach(function () {
     /**
      * @type {MockFileEntryCache}
      */
@@ -28,10 +31,10 @@ describe('class MRCA', function() {
         Object.create({
           yieldChangedFiles: sinon
             .stub()
-            .returns({changed: new Set(), notFound: new Set()}),
+            .returns({changed: new Set(), missing: new Set()}),
           save: sinon.stub().returnsThis(),
           markFileChanged: sinon.stub().returnsThis(),
-          reset: sinon.stub().returnsThis()
+          reset: sinon.stub().returnsThis(),
         })
       ),
       {create: sinon.spy((...args) => FileEntryCache(...args))}
@@ -48,6 +51,8 @@ describe('class MRCA', function() {
           normalize: sinon.stub(),
           import: sinon.stub().returnsThis(),
           isEntryFile: sinon.stub(),
+          importFromFile: sinon.stub().returnsThis(),
+          filterUntrackedFiles: sinon.stub().returns(new Set()),
           save: sinon.stub().returnsThis(),
           reset: sinon.stub().returnsThis(),
           toJSON: sinon.stub().returns({
@@ -55,38 +60,44 @@ describe('class MRCA', function() {
               nodes: [],
               edges: [],
               attributes: [],
-              options: []
-            }
-          })
+              options: [],
+            },
+          }),
+          filepaths: new Set(),
+          directories: new Set(),
+          markMissing: sinon.stub().returnsThis(),
+          getAncestors: sinon
+            .stub()
+            .returns({ancestors: new Set(), entryFiles: new Set()}),
         })
       ),
       {
-        create: sinon.spy((...args) => ModuleGraph(...args))
+        create: sinon.spy((...args) => ModuleGraph(...args)),
       }
     );
 
     mocks = {
       FileEntryCache,
-      ModuleGraph
+      ModuleGraph,
     };
 
     stubs = {
       'file-entry-cache': {
-        FileEntryCache: mocks.FileEntryCache
+        FileEntryCache: mocks.FileEntryCache,
       },
       'module-graph': {
-        ModuleGraph: mocks.ModuleGraph
+        ModuleGraph: mocks.ModuleGraph,
       },
       resolver: {
-        resolveDependencies: sinon.stub().returns(new Set())
+        resolveDependencies: sinon.stub().returns(new Set()),
       },
       util: {
-        findCacheDir: sinon.stub().returns('/some/cache/dir')
-      }
+        findCacheDir: sinon.stub().returns('/some/cache/dir'),
+      },
     };
     const mrcaModule = rewiremock.proxy(
       () => require('../../src/mrca'),
-      r => ({
+      (r) => ({
         [require.resolve('../../src/file-entry-cache')]: r.with(
           stubs['file-entry-cache']
         ),
@@ -94,161 +105,149 @@ describe('class MRCA', function() {
         [require.resolve('../../src/resolver')]: r.with(stubs.resolver),
         [require.resolve('../../src/module-graph')]: r.with(
           stubs['module-graph']
-        )
+        ),
       })
     );
     MRCA = mrcaModule.MRCA;
   });
 
-  describe('constructor', function() {
+  describe('constructor', function () {
+    /**
+     * @type {MRCA}
+     */
     let mrca;
 
-    beforeEach(function() {
+    beforeEach(function () {
       sinon.stub(MRCA.prototype, '_init').resolves();
 
       mrca = new MRCA({
-        entryFiles: ['foo.js', 'bar.js', 'baz.js']
+        entryFiles: ['foo.js', 'bar.js', 'baz.js'],
       });
 
       sinon.stub(mrca, 'cwd').get(() => '/pwd/');
     });
 
-    it('should initialize', function() {
+    it('should initialize', function () {
       expect(mrca._init, 'was called once');
     });
 
-    it('should create/load a module graph', function() {
+    it('should create/load a module graph', function () {
       expect(mocks.ModuleGraph.create, 'was called once');
     });
 
-    it('should create/load a file entry cache', function() {
+    it('should create/load a file entry cache', function () {
       expect(mocks.FileEntryCache.create, 'was called once');
     });
 
-    it('should always add `cacheDir` to the `ignore` list', function() {
+    it('should always add `cacheDir` to the `ignore` list', function () {
       expect(mrca.ignore, 'to contain', '/some/cache/dir');
     });
   });
 
-  describe('instance method', function() {
+  describe('instance method', function () {
+    /** @type {MRCA & {moduleGraph: SinonStubbedInstance<ModuleGraph>, fileEntryCache: SinonStubbedInstance<FileEntryCache>}} */
     let mrca;
 
-    beforeEach(async function() {
+    beforeEach(async function () {
       const initStub = sinon.stub(MRCA.prototype, '_init').resolves();
 
-      mrca = MRCA.create({
-        entryFiles: ['foo.js', 'bar.js', 'baz.js'],
-        reset: true
-      });
+      mrca = /** @type {MRCA & {moduleGraph: SinonStubbedInstance<ModuleGraph>, fileEntryCache: SinonStubbedInstance<FileEntryCache>}} */ (MRCA.create(
+        {
+          entryFiles: ['foo.js', 'bar.js', 'baz.js'],
+          reset: true,
+        }
+      ));
       sinon.stub(mrca, 'cwd').get(() => '/pwd/');
 
       await mrca.ready;
       initStub.restore();
     });
 
-    describe('_init()', function() {
-      beforeEach(function() {
+    describe('_init()', function () {
+      beforeEach(function () {
         sinon.stub(mrca, '_hydrate').resolves();
         sinon.stub(mrca, 'save').returnsThis();
         sinon
           .stub(mrca, '_yieldChangedFiles')
-          .returns({changed: new Set(), notFound: new Set()});
-        mrca.initialized = false;
+          .returns({changed: new Set(), missing: new Set()});
         mrca.moduleGraph.has.returns(true);
       });
 
-      describe('when already initialized', function() {
-        beforeEach(function() {
-          mrca.initialized = true;
-        });
-
-        describe('when option `force` is falsy', function() {
-          it('should reject', async function() {
-            return expect(() => mrca._init(), 'to be rejected');
-          });
-        });
-
-        describe('when option `force` is truthy', function() {
-          it('should reinit', function() {
-            expect(() => mrca._init({force: true}), 'not to throw');
-          });
-        });
-      });
-
-      describe('when node already found for entry file', function() {
-        beforeEach(async function() {
+      describe('when node already found for entry file', function () {
+        beforeEach(async function () {
           mrca.moduleGraph.isEntryFile.withArgs('foo.js').returns(true);
 
           mrca.moduleGraph.set.resetHistory();
           return mrca._init();
         });
 
-        it('should not create another node', function() {
+        it('should not create another node', function () {
           expect(mrca.moduleGraph.set, 'not to have calls satisfying', [
-            'foo.js'
+            'foo.js',
           ]).and('was called twice'); // for bar and baz
         });
       });
 
-      describe('when entry files have changed', function() {
-        beforeEach(async function() {
-          mrca._yieldChangedFiles.returns({
+      describe('when entry files have changed', function () {
+        beforeEach(async function () {
+          /** @type {SinonStub<[filepaths?: Set<string>],FilesInfo>} */
+          (mrca._yieldChangedFiles).returns({
             changed: new Set(['foo.js']),
-            notFound: new Set()
+            missing: new Set(),
           });
           mrca.moduleGraph.isEntryFile.returns(true);
           return mrca._init();
         });
 
-        it('should yield changed files (which will persist the file entry cache)', function() {
+        it('should yield changed files (which will persist the file entry cache)', function () {
           expect(mrca._yieldChangedFiles, 'was called once');
         });
 
-        it('should populate starting from entry files', function() {
+        it('should populate starting from entry files', function () {
           expect(mrca._hydrate, 'to have a call satisfying', [
-            new Set(['foo.js'])
+            new Set(['foo.js']),
           ]);
         });
 
-        it('should persist the module graph', function() {
+        it('should persist the module graph', function () {
           expect(mrca.save, 'was called once');
         });
       });
 
-      describe('when no files have changed', function() {
-        beforeEach(async function() {
+      describe('when no files have changed', function () {
+        beforeEach(async function () {
           mrca.moduleGraph.isEntryFile.returns(true);
           return mrca._init();
         });
 
-        it('should not populate anything', function() {
+        it('should not populate anything', function () {
           expect(mrca._hydrate, 'was not called');
         });
       });
 
-      describe('when provided no options', function() {
-        beforeEach(function() {
+      describe('when provided no options', function () {
+        beforeEach(function () {
           mrca._init();
         });
 
-        it('should not reset the module graph', function() {
+        it('should not reset the module graph', function () {
           expect(mrca.moduleGraph.reset, 'was not called');
         });
 
-        it('should not reset the file entry cache', function() {
+        it('should not reset the file entry cache', function () {
           expect(mrca.fileEntryCache.reset, 'was not called');
         });
       });
 
-      describe('when option `reset` is truthy', function() {
-        beforeEach(function() {
+      describe('when option `reset` is truthy', function () {
+        beforeEach(function () {
           mrca._init({reset: true});
         });
-        it('should reset the module graph', function() {
+        it('should reset the module graph', function () {
           expect(mrca.moduleGraph.reset, 'was called once');
         });
 
-        it('should reset the file entry cache', function() {
+        it('should reset the file entry cache', function () {
           expect(mrca.fileEntryCache.reset, 'was called once');
         });
       });
@@ -391,181 +390,131 @@ describe('class MRCA', function() {
     //   });
     // });
 
-    describe('save()', function() {
-      describe('when `persistFileEntryCache` option is falsy', function() {
-        beforeEach(function() {
+    describe('save()', function () {
+      describe('when `persistFileEntryCache` option is falsy', function () {
+        beforeEach(function () {
           mrca.save();
         });
 
-        it('should persist the module graph', function() {
+        it('should persist the module graph', function () {
           expect(mrca.moduleGraph.save, 'was called once');
         });
 
-        it('should not persist the file entry cache', function() {
+        it('should not persist the file entry cache', function () {
           expect(mrca.fileEntryCache.save, 'was not called');
         });
       });
 
-      describe('when `persistFileEntryCache` option is truthy', function() {
-        beforeEach(function() {
+      describe('when `persistFileEntryCache` option is truthy', function () {
+        beforeEach(function () {
           mrca.save({persistFileEntryCache: true});
         });
 
-        it('should persist the module graph', function() {
+        it('should persist the module graph', function () {
           expect(mrca.moduleGraph.save, 'was called once');
         });
 
-        it('should persist the file entry cache', function() {
+        it('should persist the file entry cache', function () {
           expect(mrca.fileEntryCache.save, 'was called once');
         });
       });
 
-      it('should return its context', function() {
+      it('should return its context', function () {
         expect(mrca.save(), 'to be', mrca);
       });
     });
 
-    describe('toJSON()', function() {
-      beforeEach(function() {
+    describe('toJSON()', function () {
+      beforeEach(function () {
         mrca.moduleGraph.toJSON.returns(
           sortKeys(
             {
-              attributes: {},
-              nodes: [
-                {key: 'herp.js', attributes: {entryFile: true}},
-                {key: 'quux.js', attributes: {entryFile: true}},
-                {key: 'derp.js', attributes: {entryFile: true}},
-                {key: 'foo.js'},
-                {key: 'bar.js'},
-                {key: 'baz.js'},
-                {key: 'spam.js'}
-              ],
-              edges: [
-                {source: 'foo.js', target: 'herp.js'},
-                {source: 'bar.js', target: 'foo.js'},
-                {source: 'baz.js', target: 'foo.js'},
-                {source: 'baz.js', target: 'quux.js'},
-                {source: 'spam.js', target: 'derp.js'}
-              ],
-              options: {type: 'directed', multi: false, allowSelfLoops: true}
+              cwd: mrca.moduleGraph.cwd,
+              cacheDir: mrca.moduleGraph.cacheDir,
+              filename: mrca.moduleGraph.filename,
+              useRealPaths: mrca.moduleGraph.useRealPaths,
+              graph: {
+                attributes: {},
+                nodes: [
+                  {key: 'herp.js', attributes: {entryFile: true}},
+                  {key: 'quux.js', attributes: {entryFile: true}},
+                  {key: 'derp.js', attributes: {entryFile: true}},
+                  {key: 'foo.js'},
+                  {key: 'bar.js'},
+                  {key: 'baz.js'},
+                  {key: 'spam.js'},
+                ],
+                edges: [
+                  {source: 'foo.js', target: 'herp.js'},
+                  {source: 'bar.js', target: 'foo.js'},
+                  {source: 'baz.js', target: 'foo.js'},
+                  {source: 'baz.js', target: 'quux.js'},
+                  {source: 'spam.js', target: 'derp.js'},
+                ],
+                options: {type: 'directed', multi: false, allowSelfLoops: true},
+              },
             },
             {deep: true}
           )
         );
       });
 
-      it('should return a stable representation of the instance', function() {
+      it('should return a stable representation of the instance', function () {
         expect(mrca.toJSON(), 'to equal snapshot', {
           cacheDir: '/some/cache/dir',
           cwd: '/pwd/',
           entryFiles: ['foo.js', 'bar.js', 'baz.js'],
           ignore: ['/some/cache/dir'],
           moduleGraph: {
-            attributes: {},
-            edges: [
-              {source: 'foo.js', target: 'herp.js'},
-              {source: 'bar.js', target: 'foo.js'},
-              {source: 'baz.js', target: 'foo.js'},
-              {source: 'baz.js', target: 'quux.js'},
-              {source: 'spam.js', target: 'derp.js'}
-            ],
-            nodes: [
-              {attributes: {entryFile: true}, key: 'herp.js'},
-              {attributes: {entryFile: true}, key: 'quux.js'},
-              {attributes: {entryFile: true}, key: 'derp.js'},
-              {key: 'foo.js'},
-              {key: 'bar.js'},
-              {key: 'baz.js'},
-              {key: 'spam.js'}
-            ],
-            options: {allowSelfLoops: true, multi: false, type: 'directed'}
+            cacheDir: undefined,
+            cwd: undefined,
+            filename: undefined,
+            graph: {
+              attributes: {},
+              edges: [
+                {source: 'foo.js', target: 'herp.js'},
+                {source: 'bar.js', target: 'foo.js'},
+                {source: 'baz.js', target: 'foo.js'},
+                {source: 'baz.js', target: 'quux.js'},
+                {source: 'spam.js', target: 'derp.js'},
+              ],
+              nodes: [
+                {attributes: {entryFile: true}, key: 'herp.js'},
+                {attributes: {entryFile: true}, key: 'quux.js'},
+                {attributes: {entryFile: true}, key: 'derp.js'},
+                {key: 'foo.js'},
+                {key: 'bar.js'},
+                {key: 'baz.js'},
+                {key: 'spam.js'},
+              ],
+              options: {allowSelfLoops: true, multi: false, type: 'directed'},
+            },
+            useRealPaths: undefined,
           },
           tsConfigPath: undefined,
-          webpackConfigPath: undefined
+          webpackConfigPath: undefined,
         });
       });
     });
 
-    describe.skip('mergeFromCache()', function() {
-      beforeEach(function() {
-        sinon.spy(mrca, 'clear');
-      });
-
-      describe('when provided option destructive = true', function() {
-        it('should clear the module map', function() {
-          mrca.mergeFromCache({destructive: true});
-          expect(mrca.clear, 'was called once');
-        });
-      });
-
-      describe('when not provided option destructive = true', function() {
-        it('should not clear the module map', function() {
-          mrca.mergeFromCache();
-          expect(mrca.clear, 'was not called');
-        });
-      });
-
-      it('should overwrite existing values with the contents of the cache', function() {
-        mrca.set(
-          'foo.js',
-          ModuleMapNode.create('foo.js', {
-            children: [],
-            parents: [],
-            entryFiles: []
-          })
-        );
-        mrca.set('bar.js', ModuleMapNode.create('bar.js'));
-        // should use new value for `children` and leave `bar.js` untouched
-        /** @type {SinonStub} */ (mrca.moduleGraph.values).returns(
-          new Set([
-            {
-              filename: 'foo.js',
-              children: ['bar.js'],
-              entryFiles: [],
-              parents: []
-            }
-          ])
-        );
-
-        mrca.mergeFromCache();
-        expect(mrca, 'as JSON', 'to satisfy', {
-          'foo.js': {filename: 'foo.js', children: ['bar.js']},
-          'bar.js': {filename: 'bar.js'}
-        });
-      });
-
-      describe('when the on-disk module map has been corrupted', function() {
-        beforeEach(function() {
-          /** @type {SinonStub} */ (mrca.moduleGraph.values).returns({
-            z: 'foo'
-          });
-        });
-
-        it('should throw', function() {
-          expect(() => mrca.mergeFromCache(), 'to throw');
-        });
-      });
-    });
-
-    describe('addEntryFile()', function() {
-      beforeEach(function() {
+    describe('addEntryFile()', function () {
+      beforeEach(function () {
         sinon.stub(mrca, 'cwd').get(() => '/some/farm/animals');
         sinon.stub(mrca, '_hydrate').returnsThis();
-        sinon.spy(mrca, 'set');
         sinon.spy(mrca.entryFiles, 'add');
       });
 
-      describe('when provided a relative filepath', function() {
-        it('should resolve the filepath relative to the `cwd` prop', function() {
+      describe('when provided a relative filepath', function () {
+        it('should resolve the filepath relative to the `cwd` prop', function () {
           mrca.addEntryFile('foo.js');
           expect(mrca.entryFiles.add, 'to have a call satisfying', [
-            '/some/farm/animals/foo.js'
+            '/some/farm/animals/foo.js',
           ]);
         });
       });
 
-      describe('when provided a file which is already known but not an entry file', function() {
-        beforeEach(function() {
+      describe('when provided a file which is already known but not an entry file', function () {
+        beforeEach(function () {
           sinon
             .stub(mrca, 'has')
             .withArgs('/some/farm/animals/foo.js')
@@ -573,18 +522,18 @@ describe('class MRCA', function() {
           mrca.addEntryFile('/some/farm/animals/foo.js');
         });
 
-        it('should add the entry file', function() {
+        it('should add the entry file', function () {
           expect(mrca.entryFiles.add, 'was called once');
         });
 
-        it('should not attempt to re-populate from an already known file', function() {
+        it('should not attempt to re-populate from an already known file', function () {
           mrca.addEntryFile('/some/farm/animals/foo.js');
           expect(mrca._hydrate, 'was not called');
         });
       });
 
-      describe('when provided a file which is already an entry file', function() {
-        beforeEach(function() {
+      describe('when provided a file which is already an entry file', function () {
+        beforeEach(function () {
           mrca.entryFiles.add('/some/farm/animals/foo.js');
           sinon
             .stub(mrca, 'has')
@@ -592,211 +541,202 @@ describe('class MRCA', function() {
             .returns(true);
         });
 
-        it('should not attempt to add the entry file', function() {
+        it('should not attempt to add the entry file', function () {
           mrca.addEntryFile('/some/farm/animals/foo.js');
           expect(mrca.entryFiles.add, 'was called once');
         });
 
-        it('should not attempt to re-populate from an already known file', function() {
+        it('should not attempt to re-populate from an already known file', function () {
           mrca.addEntryFile('/some/farm/animals/foo.js');
           expect(mrca._hydrate, 'was not called');
         });
       });
     });
 
-    describe('_hydrate()', function() {
-      let nodes;
+    describe('_hydrate()', function () {
+      let filepaths;
 
-      beforeEach(function() {
-        nodes = new Map([
-          ['foo.js', ModuleMapNode.create('foo.js')],
-          ['bar.js', ModuleMapNode.create('bar.js')],
-          ['baz.js', ModuleMapNode.create('baz.js')]
-        ]);
+      beforeEach(function () {
+        filepaths = ['foo.js', 'bar.js', 'baz.js'];
       });
 
-      describe('when no dependencies for the nodes are found', function() {
-        beforeEach(function() {
+      describe('when no dependencies for the nodes are found', function () {
+        beforeEach(function () {
           sinon.stub(mrca, 'findAllDependencies').resolves(new Map());
         });
 
-        it('should only attempt to find dependencies for provided ModuleMapNodes', async function() {
-          await mrca._hydrate([...nodes.values()]);
+        it('should only attempt to find dependencies for provided filepaths', async function () {
+          await mrca._hydrate(filepaths);
           expect(mrca.findAllDependencies, 'to have a call satisfying', [
-            ['foo.js', 'bar.js', 'baz.js']
+            ['foo.js', 'bar.js', 'baz.js'],
           ]).and('was called once');
         });
       });
 
-      describe('when dependencies are found', function() {
-        beforeEach(async function() {
+      describe('when dependencies are found', function () {
+        beforeEach(async function () {
           sinon
             .stub(mrca, 'findAllDependencies')
-            .resolves(new Map([['foo.js', new Set(['quux.js'])]]));
-          return mrca._hydrate([...nodes.values()]);
+            .resolves(
+              new Map([
+                [
+                  'foo.js',
+                  {resolved: new Set(['quux.js']), missing: new Set()},
+                ],
+              ])
+            );
+          return mrca._hydrate(filepaths);
         });
 
-        it('should attempt to find dependencies for found dependencies', function() {
-          expect(mrca.findAllDependencies, 'to have calls satisfying', [
-            [['foo.js', 'bar.js', 'baz.js']],
-            [['quux.js']]
-          ]).and('was called twice');
+        it('should attempt to find transitive dependencies', function () {
+          expect(mrca.findAllDependencies, 'to have a call satisfying', [
+            ['quux.js'],
+          ]);
         });
 
-        it('should assign `children` property to provided nodes', function() {
-          expect(
-            nodes.get('foo.js'),
-            'to have property',
-            'children',
-            new Set(['quux.js'])
-          );
-        });
-
-        it('should assign `entryFiles` property to found dependency nodes', function() {
-          expect(
-            mrca.get('quux.js'),
-            'to have property',
-            'entryFiles',
-            new Set(['foo.js'])
-          );
-        });
-
-        it('should assign `parents` property to found dependency nodes', function() {
-          expect(
-            mrca.get('quux.js'),
-            'to have property',
-            'parents',
-            new Set(['foo.js'])
-          );
-        });
-
-        it('should create nodes for the dependencies if they do not exist', function() {
-          expect(ModuleMapNode.create, 'to have a call satisfying', [
-            'quux.js'
+        it('should assign `parents` attribute to found dependency nodes', function () {
+          expect(mrca.moduleGraph.set, 'to have a call satisfying', [
+            'quux.js',
+            {parents: new Set(['foo.js'])},
           ]);
         });
       });
 
-      describe('when the same deps are found multiple times', function() {
-        /** @type {SinonStub} */
-        let findAllDependencies;
-        beforeEach(async function() {
-          findAllDependencies = sinon.stub(mrca, 'findAllDependencies');
+      describe('when the same deps are found multiple times', function () {
+        beforeEach(async function () {
+          const findAllDependencies = sinon.stub(mrca, 'findAllDependencies');
           // foo.js depends on quux.js
           findAllDependencies
             .onFirstCall()
-            .resolves(new Map([['foo.js', new Set(['quux.js'])]]));
+            .resolves(
+              new Map([
+                [
+                  'foo.js',
+                  {resolved: new Set(['quux.js']), missing: new Set()},
+                ],
+              ])
+            );
           // quux.js depends on bar.js, but we've already processed bar.js in the first call.
           findAllDependencies
             .onSecondCall()
-            .resolves(new Map([['quux.js', new Set(['bar.js'])]]));
-          return mrca._hydrate([...nodes.values()]);
+            .resolves(
+              new Map([
+                [
+                  'quux.js',
+                  {resolved: new Set(['bar.js']), missing: new Set()},
+                ],
+              ])
+            );
+          return mrca._hydrate([...filepaths.values()]);
         });
 
-        it('should not re-process the same deps', function() {
-          expect(findAllDependencies, 'was called twice');
+        it('should not re-process the same deps', function () {
+          expect(mrca.findAllDependencies, 'was called twice');
         });
       });
     });
 
-    describe('toString()', function() {
-      beforeEach(function() {
-        mrca.set(
-          'foo.js',
-          ModuleMapNode.create('foo.js', {
-            children: ['/some/child.js', '/some/other/child.js']
-          })
-        );
-        mrca.set('bar.js', ModuleMapNode.create('bar.js'));
-        mrca.set(
-          '/some/child.js',
-          ModuleMapNode.create('/some/child.js', {
-            parents: ['foo.js']
-          })
-        );
-        mrca.set(
-          '/some/other/child.js',
-          ModuleMapNode.create('/some/other/child.js', {
-            parents: ['foo.js']
-          })
-        );
-      });
+    describe('_yieldChangedFiles()', function () {
+      /**
+       * @type {SinonStub<[filepath?: string],boolean>}
+       */
+      let hasStub;
 
-      it('should return a JSON representation of the ModuleMap', function() {
-        expect(
-          mrca.toString(),
-          'to equal snapshot',
-          '{"/some/child.js":{"filename":"/some/child.js","children":[],"parents":["foo.js"],"entryFiles":[]},"/some/other/child.js":{"filename":"/some/other/child.js","children":[],"parents":["foo.js"],"entryFiles":[]},"bar.js":{"filename":"bar.js","children":[],"parents":[],"entryFiles":[]},"foo.js":{"filename":"foo.js","children":["/some/child.js","/some/other/child.js"],"parents":[],"entryFiles":[]}}'
-        );
-      });
-    });
-
-    describe('_yieldChangedFiles()', function() {
-      beforeEach(function() {
-        sinon.stub(mrca, 'delete');
+      beforeEach(function () {
+        sinon
+          .stub(mrca.moduleGraph, 'filepaths')
+          .get(() => ['foo.js', 'bar.js', 'baz.js']);
         sinon.stub(mrca, 'save');
+        hasStub = sinon.stub(mrca, 'has').returns(true);
       });
 
-      it('should delegate to the file entry cache', function() {
+      it('should delegate to the file entry cache', function () {
         mrca._yieldChangedFiles();
         expect(
           mrca.fileEntryCache.yieldChangedFiles,
           'to have a call satisfying',
-          [mrca.files]
+          [mrca.moduleGraph.filepaths]
         ).and('was called once');
       });
 
-      describe('when the file entry cache returns a nonempty list of missing ("not found") files', function() {
-        beforeEach(function() {
-          /** @type {SinonStub} */ (mrca.fileEntryCache.yieldChangedFiles).returns(
-            {
-              changed: new Set(['baz.js']),
-              notFound: new Set(['foo.js', 'bar.js'])
-            }
-          );
+      describe('when the file entry cache returns a nonempty list of missing ("not found") files', function () {
+        beforeEach(function () {
+          mrca.fileEntryCache.yieldChangedFiles.returns({
+            changed: new Set(['baz.js']),
+            missing: new Set(['foo.js', 'bar.js']),
+          });
         });
 
-        it('should delete each from the module map', function() {
+        it('should mark each "not found" file as missing', function () {
           mrca._yieldChangedFiles();
-          expect(mrca.delete, 'to have calls satisfying', [
+          expect(mrca.moduleGraph.markMissing, 'to have calls satisfying', [
             ['foo.js'],
-            ['bar.js']
+            ['bar.js'],
           ]).and('was called twice');
         });
 
-        it('should persist the module map', function() {
+        it('should persist the module graph', function () {
           mrca._yieldChangedFiles();
           expect(mrca.save, 'was called once');
         });
 
-        it('should return the list of changed files', function() {
-          expect(mrca._yieldChangedFiles(), 'to equal', new Set(['baz.js']));
+        it('should pass thru the return value from the file entry cache', function () {
+          expect(mrca._yieldChangedFiles(), 'to equal', {
+            changed: new Set(['baz.js']),
+            missing: new Set(['foo.js', 'bar.js']),
+          });
         });
       });
 
-      describe('when the file entry cache return an empty list of missing ("not found") files', function() {
-        beforeEach(function() {
-          /** @type {SinonStub} */ (mrca.fileEntryCache.yieldChangedFiles).returns(
-            {
-              changed: new Set(['baz.js']),
-              notFound: new Set()
-            }
-          );
+      describe('when the file entry cache return an empty list of missing ("not found") files', function () {
+        beforeEach(function () {
+          mrca.fileEntryCache.yieldChangedFiles.returns({
+            changed: new Set(['baz.js']),
+            missing: new Set(),
+          });
         });
 
-        it('should not persist the module map', function() {
+        it('should persist the module graph', function () {
+          mrca._yieldChangedFiles();
+          expect(mrca.save, 'was called once');
+        });
+
+        it('should return the list of changed files', function () {
+          expect(mrca._yieldChangedFiles(), 'to equal', {
+            changed: new Set(['baz.js']),
+            missing: new Set(),
+          });
+        });
+      });
+
+      describe('when the file entry cache returns empty lists', function () {
+        beforeEach(function () {
+          mrca.fileEntryCache.yieldChangedFiles.returns({
+            changed: new Set(),
+            missing: new Set(),
+          });
+        });
+
+        it('should not persist the module graph', function () {
           mrca._yieldChangedFiles();
           expect(mrca.save, 'was not called');
         });
 
-        it('should return the list of changed files', function() {
-          expect(mrca._yieldChangedFiles(), 'to equal', new Set(['baz.js']));
+        it('should return the empty lists', function () {
+          expect(mrca._yieldChangedFiles(), 'to equal', {
+            changed: new Set(),
+            missing: new Set(),
+          });
         });
       });
 
-      describe('when provided an explicit list of files', function() {
-        describe('when a filepath provided is unknown to the module map', function() {
-          it('should throw', function() {
+      describe('when provided an explicit list of files', function () {
+        describe('when a filepath provided is unknown to the module map', function () {
+          beforeEach(function () {
+            hasStub.returns(false);
+          });
+
+          it('should throw', function () {
             expect(
               () => mrca._yieldChangedFiles(new Set(['quux.js'])),
               'to throw',
@@ -805,10 +745,8 @@ describe('class MRCA', function() {
           });
         });
 
-        describe('when all filepaths are known to the module map', function() {
-          it('should provide the list to the file entry cache', function() {
-            mrca.set('quux.js', ModuleMapNode.create('quux.js'));
-            mrca.set('baz.js', ModuleMapNode.create('baz.js'));
+        describe('when all filepaths are known to the module map', function () {
+          it('should provide the list to the file entry cache', function () {
             mrca._yieldChangedFiles(new Set(['quux.js', 'baz.js']));
             expect(
               mrca.fileEntryCache.yieldChangedFiles,
@@ -820,174 +758,154 @@ describe('class MRCA', function() {
       });
     });
 
-    describe('findAffectedFilesForChangedFiles()', function() {
-      beforeEach(function() {
+    describe('findAffectedFilesForChangedFiles()', function () {
+      beforeEach(function () {
         sinon.stub(mrca, 'markFileChanged');
-        sinon.stub(mrca, '_yieldChangedFiles').returns(new Set());
+        sinon.stub(mrca, '_yieldChangedFiles').returns({
+          changed: new Set(['changed.js']),
+          missing: new Set(['missing.js']),
+        });
         sinon.stub(mrca, '_hydrate').resolves();
-        sinon.stub(mrca, '_findAffectedFiles').callsFake(value =>
-          new Set(value).size
+        sinon.stub(mrca, '_findAffectedFiles').callsFake((value) => {
+          const valueSet = new Set(value);
+          return valueSet.size
             ? {
-                entryFiles: new Set(['foo.js']),
-                allFiles: new Set(['foo.js', 'bar.js'])
+                entryFiles: valueSet,
+                allFiles: valueSet,
               }
-            : {entryFiles: new Set(), allFiles: new Set()}
-        );
-        sinon.stub(mrca, 'mergeFromCache').returnsThis();
-        sinon.stub(mrca, '_init').resolves();
+            : {entryFiles: new Set(), allFiles: new Set()};
+        });
       });
 
-      it('should return the result of `_findAffectedFiles`', async function() {
-        // this doesn't feel right, but a better assertion eludes me atm
+      it('should pass list of changed and missing files into _findAffectedFiles', async function () {
+        /**
+         * @type {SinonStub<Parameters<MRCA['_yieldChangedFiles']>,ReturnType<MRCA['_yieldChangedFiles']>>}
+         */ (mrca._yieldChangedFiles).returns({
+          changed: new Set(['changed.js']),
+          missing: new Set(['missing.js']),
+        });
+
         return expect(
-          mrca.findAffectedFilesForChangedFiles({
-            knownChangedFiles: ['foo.js', 'bar.js']
-          }),
-          'when fulfilled',
-          'to be',
-          /** @type {SinonStub} */ (mrca._findAffectedFiles).returnValues[0]
+          mrca.findAffectedFilesForChangedFiles(),
+          'to be fulfilled with',
+          new Set()
         );
       });
 
-      describe('when provided known changed files', function() {
-        it('should explicitly mark each file given as "changed"', async function() {
+      describe('when provided known changed files', function () {
+        it('should explicitly mark each file given as "changed"', async function () {
           await mrca.findAffectedFilesForChangedFiles({
-            knownChangedFiles: ['foo.js', 'bar.js']
+            knownChangedFiles: ['foo.js', 'bar.js'],
           });
           expect(mrca.markFileChanged, 'to have calls satisfying', [
             [path.join(mrca.cwd, 'foo.js')],
-            [path.join(mrca.cwd, 'bar.js')]
+            [path.join(mrca.cwd, 'bar.js')],
           ]).and('was called twice');
         });
       });
 
-      describe('when not provided known changed files', function() {
-        it('should not mark any file as explicitly changed', async function() {
+      describe('when not provided known changed files', function () {
+        it('should not mark any file as explicitly changed', async function () {
           await mrca.findAffectedFilesForChangedFiles();
           expect(mrca.markFileChanged, 'was not called');
         });
       });
 
-      it('should query for a list of changed files', async function() {
+      it('should query for a list of changed files', async function () {
         await mrca.findAffectedFilesForChangedFiles();
         expect(mrca._yieldChangedFiles, 'was called once');
       });
 
-      describe('when no files have changed', function() {
-        it('should return a vast emptiness', async function() {
+      describe('when no files have changed', function () {
+        beforeEach(function () {
+          /**
+           * @type {SinonStub<Parameters<MRCA['_yieldChangedFiles']>,ReturnType<MRCA['_yieldChangedFiles']>>}
+           */ (mrca._yieldChangedFiles).returns({
+            changed: new Set(),
+            missing: new Set(),
+          });
+        });
+        it('should return a vast emptiness', async function () {
           return expect(
             mrca.findAffectedFilesForChangedFiles(),
-            'to be fulfilled with',
-            {entryFiles: new Set(), allFiles: new Set()}
+            'to be fulfilled with value equal to',
+            {
+              entryFiles: new Set(),
+              allFiles: new Set(),
+            }
           );
         });
       });
 
-      describe('when files have changed', function() {
-        beforeEach(function() {
-          /** @type {SinonStub } */ (mrca._yieldChangedFiles).returns(
-            new Set(['foo.js', 'bar.js'])
-          );
+      describe('when files have changed', function () {
+        beforeEach(function () {
+          /**
+           * @type {SinonStub<Parameters<MRCA['_yieldChangedFiles']>,ReturnType<MRCA['_yieldChangedFiles']>>}
+           */ (mrca._yieldChangedFiles).returns({
+            changed: new Set(['foo.js', 'bar.js']),
+            missing: new Set(),
+          });
         });
 
-        it('should re-hydrate the changed files', async function() {
-          sinon
-            .stub(mrca, 'getAll')
-            .returns(
-              new Set([
-                ModuleMapNode.create('foo.js'),
-                ModuleMapNode.create('bar.js')
-              ])
-            );
+        it('should re-hydrate the changed files', async function () {
           await mrca.findAffectedFilesForChangedFiles({
-            knownChangedFiles: ['foo.js', 'bar.js']
+            knownChangedFiles: ['foo.js', 'bar.js'],
           });
           expect(
             mrca._hydrate,
             'to have a call satisfying',
-            new Set([
-              ModuleMapNode.create('foo.js'),
-              ModuleMapNode.create('bar.js')
-            ])
+            new Set(['foo.js', 'bar.js'])
           ).and('was called once');
         });
 
-        describe('when changed files are unknown', function() {
-          it('should attempt to synchronize the cache from disk', async function() {
-            await mrca.findAffectedFilesForChangedFiles({
-              knownChangedFiles: ['foo.js', 'bar.js', 'baz.js']
-            });
-            expect(mrca.mergeFromCache, 'to have a call satisfying', [
-              {destructive: true}
-            ]).and('was called once');
+        it('should verify the changed/missing files are tracked', async function () {
+          await mrca.findAffectedFilesForChangedFiles({
+            knownChangedFiles: ['foo.js', 'bar.js'],
           });
-
-          describe('when file entry cache is mismatched with module map', function() {
-            it('should re-initialize the module map', async function() {
-              await mrca.findAffectedFilesForChangedFiles({
-                knownChangedFiles: ['foo.js', 'bar.js', 'baz.js']
-              });
-              expect(mrca._init, 'to have a call satisfying', [
-                {reset: true, force: true}
-              ]).and('was called once');
-            });
-          });
-
-          describe('when synchronization fixes the issue', function() {
-            beforeEach(function() {
-              sinon
-                .stub(mrca, 'getAll')
-                .returns(new Set())
-                .onSecondCall()
-                .returns(
-                  new Set([
-                    ModuleMapNode.create('foo.js'),
-                    ModuleMapNode.create('bar.js')
-                  ])
-                );
-            });
-
-            it('should not re-initialize the module map', async function() {
-              await mrca.findAffectedFilesForChangedFiles({
-                knownChangedFiles: ['foo.js', 'bar.js', 'baz.js']
-              });
-
-              expect(mrca._init, 'was not called');
-            });
-          });
+          expect(
+            mrca.moduleGraph.filterUntrackedFiles,
+            'to have a call satisfying',
+            [['foo.js', 'bar.js']]
+          );
         });
 
-        describe('when changed files are known', function() {
-          beforeEach(function() {
-            sinon
-              .stub(mrca, 'getAll')
-              .returns(
-                new Set([
-                  ModuleMapNode.create('foo.js'),
-                  ModuleMapNode.create('bar.js')
-                ])
-              );
-          });
+        describe('when one or more "changed" or "missing" files are untracked', function () {
+          it('should reload from disk');
+        });
 
-          it('should not attempt to merge from disk', async function() {
-            await mrca.findAffectedFilesForChangedFiles({
-              knownChangedFiles: ['foo.js', 'bar.js', 'baz.js']
-            });
-            expect(mrca.mergeFromCache, 'was not called');
-          });
+        describe('when all files are tracked', function () {
+          it('should not reload from disk');
         });
       });
     });
 
-    describe('_findAffectedFiles', function() {
-      beforeEach(function() {
-        mrca.entryFiles = new Set(['foo.js', 'bar.js']);
-        mrca.set('foo.js', ModuleMapNode.create('foo.js'));
-        mrca.set('bar.js', ModuleMapNode.create('bar.js'));
+    describe('_findAffectedFiles', function () {
+      beforeEach(function () {
+        mrca.moduleGraph.import({
+          attributes: {},
+          nodes: [
+            {key: 'herp.js', attributes: {entryFile: true}},
+            {key: 'quux.js', attributes: {entryFile: true}},
+            {key: 'derp.js', attributes: {entryFile: true}},
+            {key: 'foo.js'},
+            {key: 'bar.js'},
+            {key: 'baz.js'},
+            {key: 'spam.js'},
+          ],
+          edges: [
+            {source: 'foo.js', target: 'herp.js'},
+            {source: 'bar.js', target: 'foo.js'},
+            {source: 'baz.js', target: 'foo.js'},
+            {source: 'baz.js', target: 'quux.js'},
+            {source: 'spam.js', target: 'derp.js'},
+          ],
+          options: {type: 'directed', multi: false, allowSelfLoops: true},
+        });
+        mrca.entryFiles = new Set(['herp.js', 'quux.js', 'derp.js']);
       });
 
-      describe('when not provided any parameters', function() {
-        it('should throw', function() {
+      describe('when not provided any parameters', function () {
+        it('should throw', function () {
           expect(
             // @ts-ignore
             () => mrca._findAffectedFiles(),
@@ -997,71 +915,51 @@ describe('class MRCA', function() {
         });
       });
 
-      describe('when provided a list of ModuleMapNode objects', function() {
-        it('should return an object containing list of entry files & all affected files', function() {
-          expect(
-            mrca._findAffectedFiles([mrca.get('foo.js'), mrca.get('bar.js')]),
-            'to equal',
-            {
-              allFiles: new Set(['foo.js', 'bar.js']),
-              entryFiles: new Set(['foo.js', 'bar.js'])
-            }
-          );
+      describe('when provided a list of filepaths', function () {
+        it('should return an object containing filepaths within `allFiles` list', function () {
+          expect(mrca._findAffectedFiles(['foo.js', 'bar.js']), 'to equal', {
+            allFiles: new Set(['foo.js', 'bar.js']),
+            entryFiles: new Set(),
+          });
         });
 
-        describe('when ModuleMapNode objects reference entry files', function() {
-          beforeEach(function() {
-            mrca.set(
-              'baz.js',
-              ModuleMapNode.create('baz.js', {entryFiles: new Set(['foo.js'])})
-            );
+        describe('when filepaths have entry file ancestors', function () {
+          beforeEach(function () {
+            mrca.moduleGraph.getAncestors.withArgs('foo.js').returns({
+              entryFiles: new Set(['herp.js']),
+              ancestors: new Set(['herp.js']),
+            });
           });
 
-          it('should return an object with a prop containing the reference entry file(s)', function() {
-            expect(
-              mrca._findAffectedFiles([
-                mrca.get('foo.js'),
-                mrca.get('bar.js'),
-                mrca.get('baz.js')
-              ]),
-              'to equal',
-              {
-                allFiles: new Set(['foo.js', 'bar.js', 'baz.js']),
-                entryFiles: new Set(['foo.js', 'bar.js'])
-              }
-            );
+          it('should return an object with lists containing the ancestor entry file(s)', function () {
+            expect(mrca._findAffectedFiles(['foo.js']), 'to equal', {
+              allFiles: new Set(['foo.js', 'herp.js']),
+              entryFiles: new Set(['herp.js']),
+            });
           });
 
-          describe('when ModuleMapNode objects reference parent files', function() {
-            beforeEach(function() {
-              mrca.set(
-                'quux.js',
-                ModuleMapNode.create('quux.js', {parents: new Set(['baz.js'])})
-              );
+          describe('when filepaths have non-entry-file parents', function () {
+            beforeEach(function () {
+              mrca.moduleGraph.getAncestors.withArgs('bar.js').returns({
+                entryFiles: new Set(['herp.js']),
+                ancestors: new Set(['foo.js', 'herp.js']),
+              });
             });
 
-            it('should return an object with a prop containing the affected parent(s)', function() {
-              expect(
-                mrca._findAffectedFiles([
-                  mrca.get('foo.js'),
-                  mrca.get('bar.js'),
-                  mrca.get('quux.js')
-                ]),
-                'to equal',
-                {
-                  allFiles: new Set(['foo.js', 'bar.js', 'baz.js', 'quux.js']),
-                  entryFiles: new Set(['foo.js', 'bar.js'])
-                }
-              );
+            it('should return an object with a prop containing the affected parent(s)', function () {
+              expect(mrca._findAffectedFiles(['bar.js']), 'to equal', {
+                allFiles: new Set(['foo.js', 'bar.js', 'herp.js']),
+                entryFiles: new Set(['herp.js']),
+              });
             });
           });
         });
       });
     });
 
-    describe('markFileChanged()', function() {
-      it('should delegate to the file entry cache', function() {
-        mrca.markFileAsChanged('foo.js');
+    describe('markFileChanged()', function () {
+      it('should delegate to the file entry cache', function () {
+        mrca.markFileChanged('foo.js');
         expect(
           mrca.fileEntryCache.markFileChanged,
           'to have a call satisfying',
@@ -1069,25 +967,14 @@ describe('class MRCA', function() {
         ).and('was called once');
       });
 
-      it('should return its context', function() {
-        expect(mrca.markFileAsChanged('foo'), 'to be', mrca);
-      });
-
-      describe('when not provided a filepath parameter', function() {
-        it('should throw', function() {
-          expect(
-            // @ts-ignore
-            () => mrca.markFileAsChanged(),
-            'to throw',
-            expect.it('to be a', TypeError)
-          );
-        });
+      it('should return its context', function () {
+        expect(mrca.markFileChanged('foo'), 'to be', mrca);
       });
     });
 
-    describe('findAllDependencies()', function() {
-      describe('when not provided any parameters', function() {
-        it('should reject with a TypeError', async function() {
+    describe('findAllDependencies()', function () {
+      describe('when not provided any parameters', function () {
+        it('should reject with a TypeError', async function () {
           return expect(
             // @ts-ignore
             mrca.findAllDependencies(),
@@ -1097,8 +984,8 @@ describe('class MRCA', function() {
         });
       });
 
-      describe('when provided a non-iterable parameter', function() {
-        it('should reject with TypeError', async function() {
+      describe('when provided a non-iterable parameter', function () {
+        it('should reject with TypeError', async function () {
           return expect(
             // @ts-ignore
             mrca.findAllDependencies(42),
@@ -1108,8 +995,8 @@ describe('class MRCA', function() {
         });
       });
 
-      describe('when provided an empty iterable parameter', function() {
-        it('should resolve with an empty Map', async function() {
+      describe('when provided an empty iterable parameter', function () {
+        it('should resolve with an empty Map', async function () {
           return expect(
             mrca.findAllDependencies([]),
             'to be fulfilled with',
@@ -1118,8 +1005,8 @@ describe('class MRCA', function() {
         });
       });
 
-      describe('when provided a Set of filepaths', function() {
-        it('should return a Map of each filepath to its set of dependencies', async function() {
+      describe('when provided a Set of filepaths', function () {
+        it('should return a Map of each filepath to its set of dependencies', async function () {
           stubs.resolver.resolveDependencies
             .onFirstCall()
             .returns(new Set(['baz.js']));
@@ -1131,17 +1018,17 @@ describe('class MRCA', function() {
             'to be fulfilled with',
             new Map([
               ['foo.js', new Set(['baz.js'])],
-              ['bar.js', new Set(['quux.js'])]
+              ['bar.js', new Set(['quux.js'])],
             ])
           );
         });
 
-        it('should call Resolver.resolveDependencies using absolute filepath for each filepath', async function() {
+        it('should call Resolver.resolveDependencies using absolute filepath for each filepath', async function () {
           const opts = {
             cwd: mrca.cwd,
             ignore: mrca.ignore,
             tsConfigPath: mrca.tsConfigPath,
-            webpackConfigPath: mrca.webpackConfigPath
+            webpackConfigPath: mrca.webpackConfigPath,
           };
           await mrca.findAllDependencies(['foo.js', 'bar.js']);
           expect(
@@ -1149,7 +1036,7 @@ describe('class MRCA', function() {
             'to have calls satisfying',
             [
               [path.resolve(mrca.cwd, 'foo.js'), opts],
-              [path.resolve(mrca.cwd, 'bar.js'), opts]
+              [path.resolve(mrca.cwd, 'bar.js'), opts],
             ]
           ).and('was called twice');
         });
@@ -1157,49 +1044,40 @@ describe('class MRCA', function() {
     });
   });
 
-  describe('interesting computed properties', function() {
-    beforeEach(async function() {
+  describe('interesting computed properties', function () {
+    /**
+     * @type {MRCA}
+     */
+    let mrca;
+
+    beforeEach(async function () {
       sinon.stub(MRCA.prototype, '_init').resolves();
       mrca = new MRCA();
       return mrca.ready;
     });
 
-    describe('getters', function() {
-      describe('entryDirectories', function() {
-        beforeEach(function() {
+    describe('getters', function () {
+      describe('directories', function () {
+        beforeEach(function () {
           sinon
-            .stub(mrca, 'entryFiles')
-            .get(() => new Set(['foo.js', '/some/other/path.js']));
+            .stub(mrca.moduleGraph, 'directories')
+            .get(() => new Set(['.', '/some/other']));
         });
 
-        it('should return a set of all parent directories of entry files', function() {
-          expect(
-            mrca.entryDirectories,
-            'to equal',
-            new Set(['.', '/some/other'])
-          );
-        });
-      });
-
-      describe('directories', function() {
-        beforeEach(function() {
-          sinon
-            .stub(mrca, 'files')
-            .get(() => new Set(['foo.js', '/some/other/path.js']));
-        });
-
-        it('should return a set of all parent directories of all files', function() {
+        it('should delegate to the ModuleGraph', function () {
           expect(mrca.directories, 'to equal', new Set(['.', '/some/other']));
         });
       });
 
-      describe('files', function() {
-        beforeEach(function() {
-          sinon.stub(mrca, 'keys').returns(new Set(['a', 'b', 'c']).values());
+      describe('filepaths', function () {
+        beforeEach(function () {
+          sinon
+            .stub(mrca.moduleGraph, 'filepaths')
+            .get(() => new Set(['a.js', 'b.js', 'c.js']));
         });
 
-        it('should return a Set of all keys', function() {
-          expect(mrca.files, 'to equal', new Set(['a', 'b', 'c']));
+        it('should delegate to the ModuleGraph', function () {
+          expect(mrca.filepaths, 'to equal', new Set(['a.js', 'b.js', 'c.js']));
         });
       });
     });
@@ -1207,7 +1085,8 @@ describe('class MRCA', function() {
 });
 
 /**
- * @typedef {import('sinon').SinonStub} SinonStub
+ * @template T,U
+ * @typedef {import('sinon').SinonStub} SinonStub<T,U>
  */
 
 /**
@@ -1228,4 +1107,16 @@ describe('class MRCA', function() {
  */
 /**
  * @typedef {import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/module-graph').ModuleGraph>> & {create: import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/module-graph').ModuleGraph>>}} MockModuleGraph
+ */
+
+/**
+ * @typedef {import('../../src/module-graph').ModuleGraph} ModuleGraph
+ */
+
+/**
+ * @typedef {import('../../src/file-entry-cache').FileEntryCache} FileEntryCache
+ */
+
+/**
+ * @typedef {import('../../src/file-entry-cache').FilesInfo} FilesInfo
  */

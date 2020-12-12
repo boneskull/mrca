@@ -87,4 +87,12 @@ module.exports = require('unexpected')
         ...tuples.map(([source, target]) => ({source, target}))
       );
     }
+  )
+  // this one is here because 'to be fulfilled with' uses 'to satisfy'
+  // semantics, which is undesirable unless you really want it.
+  .addAssertion(
+    '<Promise> to be fulfilled with value equal to <any>',
+    (expect, subject, value) => {
+      return expect(subject, 'when fulfilled', 'to equal', value);
+    }
   );

@@ -17,25 +17,15 @@ const listener = ({command, payload}) => {
   }
 };
 
-resolver
-  .on(
-    Resolver.constants.EVENT_DEPENDENCY,
-    /** @param {import('./resolver').DependencyData} data */ (data) => {
-      parentPort.postMessage({
-        event: Resolver.constants.EVENT_DEPENDENCY,
-        data,
-      });
-    }
-  )
-  .on(
-    Resolver.constants.EVENT_RESOLVE_DEPENDENCIES_COMPLETE,
-    /** @param {import('./resolver').ResolveCompleteData} data */ (data) => {
-      parentPort.postMessage({
-        event: Resolver.constants.EVENT_RESOLVE_DEPENDENCIES_COMPLETE,
-        data,
-      });
-    }
-  );
+resolver.on(
+  Resolver.constants.EVENT_RESOLVED_DEPENDENCIES,
+  /** @param {import('./resolver').DependencyData} data */ (data) => {
+    parentPort.postMessage({
+      event: Resolver.constants.EVENT_RESOLVED_DEPENDENCIES,
+      data,
+    });
+  }
+);
 parentPort.on('message', listener);
 
 /**

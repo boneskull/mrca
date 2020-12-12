@@ -58,10 +58,14 @@ describe('dependency resolution', function () {
   });
 
   describe('when provided a `.json` file', function () {
-    it('should return an empty Set', function () {
+    it('should return empty lists', function () {
       expect(
         resolveDependencies(require.resolve('../../package.json')),
-        'to be empty'
+        'to satisfy',
+        {
+          resolved: expect.it('to be empty'),
+          missing: expect.it('to be empty'),
+        }
       );
     });
   });
@@ -78,7 +82,7 @@ describe('dependency resolution', function () {
           resolveDependencies(resolveFixturePath('index.fixture.ts'), {
             tsConfigPath: resolveFixturePath('tsconfig.fixture.json'),
             cwd: path.join(__dirname, '..', '..'),
-          }),
+          }).resolved,
           'as array',
           'to have an item satisfying',
           /debug/
@@ -105,7 +109,10 @@ describe('dependency resolution', function () {
         });
 
         it('should return an empty set', function () {
-          expect(result, 'to be empty');
+          expect(result, 'to satisfy', {
+            resolved: expect.it('to be empty'),
+            missing: expect.it('to be empty'),
+          });
         });
       });
 
@@ -131,7 +138,7 @@ describe('dependency resolution', function () {
           expect(
             resolveDependencies(fixture, {
               cwd: path.dirname(fixture), // cwd is needed to find default config file
-            }),
+            }).resolved,
             'as array',
             'to have an item satisfying',
             /node_modules\/debug/
@@ -153,17 +160,24 @@ describe('dependency resolution', function () {
         result = resolveDependencies(resolveFixturePath('syntax.fixture.js'));
       });
 
-      it('should return an empty set', function () {
-        expect(result, 'to be empty');
+      it('should return empty lists', function () {
+        expect(result, 'to satisfy', {
+          resolved: expect.it('to be empty'),
+          missing: expect.it('to be empty'),
+        });
       });
     });
 
     describe('when not provided a path to a Webpack config file', function () {
+      /**
+       * @type {import('../../src/resolver').ResolvedDependencies}
+       */
       let result;
       let fixture;
 
       beforeEach(function () {
         fixture = resolveFixturePath('webpack.fixture.js');
+        console.log(`FIXTURE: ${fixture}`);
         result = resolveDependencies(fixture, {
           cwd: path.dirname(fixture), // cwd is needed to find the default config file
         });
@@ -173,16 +187,20 @@ describe('dependency resolution', function () {
         // this differs from the test using webpack.config.fixture.js, which points
         // to a specific module directory in the fixture dir (`mode_nodules`) and has
         // a different `debug`
-        expect(
-          result,
-          'as array',
-          'to have an item satisfying',
-          new RegExp(escapeStringRegexp(`node_modules${path.sep}debug`))
-        ).and(
-          'as array',
-          'to have an item satisfying',
-          /webpack-dep\.fixture\.js/
-        );
+        expect(result, 'to satisfy', {
+          resolved: expect
+            .it(
+              'as array',
+              'to have an item satisfying',
+              new RegExp(escapeStringRegexp(`node_modules${path.sep}debug`))
+            )
+            .and(
+              'as array',
+              'to have an item satisfying',
+              /webpack-dep\.fixture\.js/
+            ),
+          missing: expect.it('to be empty'),
+        });
       });
 
       it('should look for a Webpack config file in cwd', function () {
@@ -257,7 +275,7 @@ describe('dependency resolution', function () {
         expect(
           resolveDependencies(require.resolve('../..'), {
             ignore: new Set(['**/node_modules/**']),
-          }),
+          }).resolved,
           'as array',
           'to have items satisfying',
           expect.it('not to match', /node_modules/)
@@ -270,7 +288,7 @@ describe('dependency resolution', function () {
         expect(
           resolveDependencies(require.resolve('../..'), {
             ignore: ['**/node_modules/**'],
-          }),
+          }).resolved,
           'as array',
           'to have items satisfying',
           expect.it('not to match', /node_modules/)
@@ -283,7 +301,7 @@ describe('dependency resolution', function () {
         expect(
           resolveDependencies(require.resolve('../..'), {
             ignore: '**/node_modules/**',
-          }),
+          }).resolved,
           'as array',
           'to have items satisfying',
           expect.it('not to match', /node_modules/)

@@ -5,6 +5,9 @@ const expect = require('../expect');
 
 describe('ModuleGraph', function () {
   describe('instance method', function () {
+    /**
+     * @type {ModuleGraph}
+     */
     let mg;
 
     beforeEach(function () {
@@ -13,9 +16,14 @@ describe('ModuleGraph', function () {
 
     describe('set()', function () {
       describe('when provided no optional metadata', function () {
+        it('should return the node name (filename)', function () {
+          expect(mg.set('foo.js'), 'to equal', 'foo.js');
+        });
+
         it('should create a graph with a single node and no edges', function () {
+          mg.set('foo.js');
           expect(
-            mg.set('foo.js').graph,
+            mg.graph,
             'when serialized',
             'to satisfy',
             expect
@@ -28,8 +36,9 @@ describe('ModuleGraph', function () {
 
       describe('when provided a list of parents', function () {
         it('should create a graph containing all nodes and edges for parents', function () {
+          mg.set('foo.js', {parents: new Set(['bar.js', 'baz.js'])});
           expect(
-            mg.set('foo.js', {parents: ['bar.js', 'baz.js']}).graph,
+            mg.graph,
             'when serialized',
             'to satisfy',
             expect
@@ -47,11 +56,12 @@ describe('ModuleGraph', function () {
 
       describe('when marked missing', function () {
         it('should reflect this in the attributes', function () {
+          mg.set('foo.js', {
+            parents: new Set(['quux.js']),
+            missing: true,
+          });
           expect(
-            mg.set('foo.js', {
-              parents: ['quux.js'],
-              missing: true,
-            }).graph,
+            mg.graph,
             'when serialized',
             'to satisfy',
             expect
@@ -96,11 +106,6 @@ describe('ModuleGraph', function () {
           'to equal',
           new Set(['herp.js', 'quux.js'])
         );
-      });
-      describe('foo', function () {
-        it('blah', function () {
-          expect(mg.graph.nodes(), 'to equal', 3);
-        });
       });
     });
   });

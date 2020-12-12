@@ -22,7 +22,7 @@ const TEST_WITH_TRANSITIVE_DEP_PATH = resolveFixturePath(
 );
 const TRANSITIVE_DEP_PATH = resolveFixturePath('transitive-dep.fixture.js');
 
-describe('threaded-module-map', function () {
+describe.skip('threaded-module-map', function () {
   /**
    * @type {ThreadedModuleMap}
    */
