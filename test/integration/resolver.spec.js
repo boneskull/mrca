@@ -1,10 +1,11 @@
 'use strict';
 
 const sinon = require('sinon');
-const rewiremock = require('rewiremock/node');
+// const rewiremock = require('rewiremock/node');
 const path = require('path');
 const expect = require('../expect');
 const escapeStringRegexp = require('escape-string-regexp');
+const resolver = require('../../src/resolver');
 
 const resolveFixturePath = (filepath) =>
   path.join(__dirname, 'fixtures', filepath);
@@ -14,37 +15,11 @@ describe('dependency resolution', function () {
    * @type {import('../../src/resolver').resolveDependencies}
    */
   let resolveDependencies;
-  /**
-   * @type {{[key: string]: sinon.SinonStub}}
-   */
-  let stubs;
 
   /** @type {typeof import('../../src/resolver').Resolver.constants} */
   let constants;
 
   beforeEach(function () {
-    stubs = {
-      warn: sinon.stub(),
-      existsSync: sinon.stub(),
-    };
-
-    // this is an integration test, but we don't need to spawn a mocha instance.
-    // we do want to stub out some fs-touching methods to make the tests easier though
-    /**
-     * @type {typeof import('../../src/resolver')}
-     */
-    const resolver = rewiremock.proxy(
-      () => require('../../src/resolver'),
-      (r) => ({
-        fs: r
-          .with({
-            // tests can modify this stub to change its behavior
-            existsSync: stubs.existsSync,
-          })
-          .callThrough(),
-      })
-    );
-
     resolveDependencies = resolver.resolveDependencies;
     resolver.Resolver.constants.DEFAULT_TS_CONFIG_FILENAME =
       'tsconfig.fixture.json';
@@ -72,10 +47,6 @@ describe('dependency resolution', function () {
 
   describe('when provided a TypeScript file', function () {
     describe('when provided a path to a TS config file', function () {
-      beforeEach(function () {
-        stubs.existsSync.returns(true);
-      });
-
       it('should find dependencies', function () {
         // this should _actually work_; no magic stubs here
         expect(
@@ -92,10 +63,6 @@ describe('dependency resolution', function () {
           /tsconfig\.fixture\.json/
         );
       });
-
-      it('should not look for a default TS config file', function () {
-        expect(stubs.existsSync, 'was not called');
-      });
     });
 
     describe('when not provided a path to TS config file', function () {
@@ -103,36 +70,41 @@ describe('dependency resolution', function () {
         let result;
 
         beforeEach(function () {
+          // this is necessary because otherwise cabinet will find `tsconfig.fixture.json`
+          // and it will befoul the assertion
+          constants.DEFAULT_TS_CONFIG_FILENAME = 'whatever-dunno.json';
+
           result = resolveDependencies(
             resolveFixturePath('unknown-dep.fixture.ts')
           );
         });
 
         it('should return an empty set', function () {
-          expect(result, 'to satisfy', {
-            resolved: expect.it('to be empty'),
-            missing: expect.it('to be empty'),
+          expect(result, 'to equal', {
+            resolved: new Set(),
+            missing: new Set(['bar']),
           });
         });
       });
 
       describe('when TS config file not in `cwd`', function () {
+        let result;
+
         beforeEach(function () {
-          resolveDependencies(resolveFixturePath('index.fixture.ts'));
+          constants.DEFAULT_TS_CONFIG_FILENAME = 'whatever-dunno.json';
+
+          result = resolveDependencies(resolveFixturePath('index.fixture.ts'));
         });
 
-        it('should look for a TS config file in cwd', function () {
-          expect(stubs.existsSync, 'to have a call satisfying', [
-            path.join(process.cwd(), constants.DEFAULT_TS_CONFIG_FILENAME),
-          ]);
+        it('should resolve dependencies via its defaults', function () {
+          expect(result, 'to satisfy', {
+            resolved: expect.it('not to be empty'),
+            missing: expect.it('to be empty'),
+          });
         });
       });
 
       describe('when TS config file is in `cwd`', function () {
-        beforeEach(function () {
-          stubs.existsSync.returns(true);
-        });
-
         it('should use the found TS config file', function () {
           const fixture = resolveFixturePath('index.fixture.ts');
           expect(
@@ -160,9 +132,9 @@ describe('dependency resolution', function () {
         result = resolveDependencies(resolveFixturePath('syntax.fixture.js'));
       });
 
-      it('should return empty lists', function () {
+      it('should find the dependencies anyway', function () {
         expect(result, 'to satisfy', {
-          resolved: expect.it('to be empty'),
+          resolved: expect.it('not to be empty'),
           missing: expect.it('to be empty'),
         });
       });
@@ -176,6 +148,7 @@ describe('dependency resolution', function () {
       let fixture;
 
       beforeEach(function () {
+        constants.DEFAULT_WEBPACK_CONFIG_FILENAME = 'fred-flintstone.json';
         fixture = resolveFixturePath('webpack.fixture.js');
         console.log(`FIXTURE: ${fixture}`);
         result = resolveDependencies(fixture, {
@@ -202,31 +175,16 @@ describe('dependency resolution', function () {
           missing: expect.it('to be empty'),
         });
       });
-
-      it('should look for a Webpack config file in cwd', function () {
-        expect(stubs.existsSync, 'to have a call satisfying', [
-          new RegExp(
-            escapeStringRegexp(constants.DEFAULT_WEBPACK_CONFIG_FILENAME)
-          ),
-        ]);
-      });
     });
 
     describe('when provided a path to a Webpack config file', function () {
       let result;
 
       beforeEach(function () {
-        stubs.existsSync.returns(true);
         const fixture = resolveFixturePath('webpack.fixture.js');
         result = resolveDependencies(fixture, {
           webpackConfigPath: resolveFixturePath('webpack.config.fixture.js'),
         });
-      });
-
-      it('should not look for a default Webpack config file', function () {
-        expect(stubs.existsSync, 'not to have calls satisfying', [
-          constants.DEFAULT_WEBPACK_CONFIG_FILENAME,
-        ]);
       });
 
       it('should find dependencies as declared by webpack config', function () {
@@ -245,10 +203,6 @@ describe('dependency resolution', function () {
     });
 
     describe('when a default Webpack config file is in `cwd`', function () {
-      beforeEach(function () {
-        stubs.existsSync.returns(true);
-      });
-
       it('should use the found Webpack config file', function () {
         expect(
           resolveDependencies(
@@ -288,19 +242,6 @@ describe('dependency resolution', function () {
         expect(
           resolveDependencies(require.resolve('../..'), {
             ignore: ['**/node_modules/**'],
-          }).resolved,
-          'as array',
-          'to have items satisfying',
-          expect.it('not to match', /node_modules/)
-        );
-      });
-    });
-
-    describe('when provided a string glob to ignore', function () {
-      it('should not return files matching the glob', function () {
-        expect(
-          resolveDependencies(require.resolve('../..'), {
-            ignore: '**/node_modules/**',
           }).resolved,
           'as array',
           'to have items satisfying',

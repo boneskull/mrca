@@ -22,20 +22,29 @@ describe('resolver', function () {
         debug: Object.assign(sinon.stub().returns(sinon.stub()), {
           enabled: sinon.stub().returns(false),
         }),
-        'dependency-tree': sinon.stub(),
+        'dependency-tree': {
+          toList: sinon.stub().returns([]),
+        },
         multimatch: sinon.stub().returns([]),
         fs: {
           existsSync: sinon.stub(),
         },
-        'resolve-from': sinon.stub(),
         path: {
           extname: sinon.stub(),
           dirname: sinon.stub(),
           resolve: sinon.stub(),
         },
       };
-      Resolver = rewiremock.proxy(() => require('../../src/resolver'), stubs)
-        .Resolver;
+      Resolver = rewiremock.proxy(
+        () => require('../../src/resolver'),
+        (r) => ({
+          debug: r.with(stubs.debug).directChildOnly(),
+          'dependency-tree': r.with(stubs['dependency-tree']).directChildOnly(),
+          multimatch: r.with(stubs.multimatch).directChildOnly(),
+          fs: r.with(stubs.fs).directChildOnly(),
+          path: r.with(stubs.path).directChildOnly(),
+        })
+      ).Resolver;
     });
 
     describe('constructor', function () {
@@ -243,7 +252,7 @@ describe('resolver', function () {
               stubs.fs.existsSync.returns(true);
             });
 
-            it('should return the path to the webpaTSck config filepath', function () {
+            it('should return the path to the TS config filepath', function () {
               expect(
                 resolver._tryFindTSConfigPath(),
                 'to equal',
@@ -259,260 +268,6 @@ describe('resolver', function () {
 
             it('should throw', function () {
               expect(() => resolver._tryFindTSConfigPath(), 'to throw');
-            });
-          });
-        });
-      });
-
-      describe.skip('_tryNaivelyResolvePartials', function () {
-        beforeEach(function () {
-          stubs.path.dirname.returns('/some/path');
-        });
-
-        describe('when no parameters provided', function () {
-          it('should throw', function () {
-            expect(
-              // @ts-ignore
-              () => resolver._tryNaivelyResolvePartials(),
-              'to throw',
-              expect.it('to be a', TypeError)
-            );
-          });
-        });
-
-        describe('when no `unfilteredPartials` parameter provided', function () {
-          it('should return empty lists', function () {
-            expect(resolver._tryNaivelyResolvePartials('foo.js'), 'to equal', {
-              naivelyResolvedPartials: new Set(),
-              unresolvedPartials: new Set(),
-            });
-          });
-        });
-
-        describe('when `unfilteredPartials` parameter provided', function () {
-          beforeEach(function () {
-            stubs.path.resolve.returns('/some/path/foo.js');
-            stubs['resolve-from'].returns('/some/path/bar.js');
-          });
-
-          it('should attempt to resolve the partial from the dir of the filepath', function () {
-            resolver._tryNaivelyResolvePartials('foo.js', new Set(['bar']));
-            expect(stubs['resolve-from'], 'to have a call satisfying', [
-              '/some/path',
-              'bar',
-            ]);
-          });
-
-          it('should emit EVENT_DEPENDENCY', function () {
-            expect(
-              () =>
-                resolver._tryNaivelyResolvePartials(
-                  'foo.js',
-                  new Set(['bar.js'])
-                ),
-              'to emit from',
-              resolver,
-              Resolver.constants.EVENT_DEPENDENCY,
-              {filepath: '/some/path/foo.js', resolved: '/some/path/bar.js'}
-            );
-          });
-
-          it('should return the resolved partial in the list of naively resolved partials', function () {
-            expect(
-              resolver._tryNaivelyResolvePartials(
-                'foo.js',
-                new Set(['bar.js'])
-              ),
-              'to equal',
-              {
-                naivelyResolvedPartials: new Set(['/some/path/bar.js']),
-                unresolvedPartials: new Set(),
-              }
-            );
-          });
-
-          describe('when the filepath is ignored', function () {
-            beforeEach(function () {
-              stubs.multimatch.returns({length: 1});
-            });
-
-            it('should not emit EVENT_DEPENDENCY', function () {
-              expect(
-                () =>
-                  resolver._tryNaivelyResolvePartials(
-                    'foo.js',
-                    new Set(['bar.js'])
-                  ),
-                'not to emit from',
-                resolver,
-                Resolver.constants.EVENT_DEPENDENCY
-              );
-            });
-
-            it('should not be added to the return value', function () {
-              expect(
-                resolver._tryNaivelyResolvePartials(
-                  'foo.js',
-                  new Set(['bar.js'])
-                ),
-                'to equal',
-                {
-                  naivelyResolvedPartials: new Set(),
-                  unresolvedPartials: new Set(),
-                }
-              );
-            });
-          });
-
-          describe('if resolution fails', function () {
-            beforeEach(function () {
-              stubs['resolve-from'].throws();
-            });
-
-            it('the partial should be added to the list of unresolved partials', function () {
-              expect(
-                resolver._tryNaivelyResolvePartials('foo.js', new Set(['bar'])),
-                'to equal',
-                {
-                  naivelyResolvedPartials: new Set(),
-                  unresolvedPartials: new Set(['bar']),
-                }
-              );
-            });
-          });
-
-          describe('if the ignore check fails', function () {
-            beforeEach(function () {
-              stubs.multimatch.throws();
-            });
-
-            it('the partial should be added to the list of unresolved partials', function () {
-              expect(
-                resolver._tryNaivelyResolvePartials('foo.js', new Set(['bar'])),
-                'to equal',
-                {
-                  naivelyResolvedPartials: new Set(),
-                  unresolvedPartials: new Set(['bar']),
-                }
-              );
-            });
-          });
-        });
-      });
-
-      describe.skip('_resolvePartials', function () {
-        describe('when called without parameters', function () {
-          it('should throw', function () {
-            expect(
-              // @ts-ignore
-              () => resolver._resolvePartials(),
-              'to throw',
-              expect.it('to be a', TypeError)
-            );
-          });
-        });
-
-        describe('when called without a filepath', function () {
-          it('should throw', function () {
-            expect(
-              // @ts-ignore
-              () => resolver._resolvePartials(new Set()),
-              'to throw',
-              expect.it('to be a', TypeError)
-            );
-          });
-        });
-
-        describe('when provided an empty set of unresolved partials', function () {
-          it('should return an empty set', function () {
-            expect(
-              resolver._resolvePartials(new Set(), 'foo.js'),
-              'to equal',
-              new Set()
-            );
-          });
-        });
-
-        describe('when all partials cannot be resolved', function () {
-          beforeEach(function () {
-            stubs['filing-cabinet'].returns('');
-          });
-
-          it('should return an empty set', function () {
-            expect(
-              resolver._resolvePartials(new Set(['derp']), 'foo.js'),
-              'to equal',
-              new Set()
-            );
-          });
-        });
-
-        describe('when resolution fails', function () {
-          beforeEach(function () {
-            stubs['filing-cabinet'].throws();
-          });
-
-          it('should throw', function () {
-            expect(
-              () =>
-                resolver._resolvePartials(new Set(['derp', 'herp']), 'foo.js'),
-              'to throw'
-            );
-          });
-        });
-
-        describe('when matching against the ignore list fails', function () {
-          beforeEach(function () {
-            stubs['filing-cabinet'].returns('/path/to/herp.js');
-            stubs.multimatch.throws();
-          });
-
-          it('should throw', function () {
-            expect(
-              () =>
-                resolver._resolvePartials(new Set(['derp', 'herp']), 'foo.js'),
-              'to throw'
-            );
-          });
-        });
-
-        describe('when some partials can be resolved', function () {
-          beforeEach(function () {
-            stubs['filing-cabinet'].onFirstCall().returns('');
-            stubs['filing-cabinet'].onSecondCall().returns('/path/to/herp.js');
-            stubs.path.resolve.returns('/path/to/foo.js');
-          });
-
-          it('should return a set containing the resolved partials', function () {
-            expect(
-              resolver._resolvePartials(new Set(['derp', 'herp']), 'foo.js'),
-              'to equal',
-              new Set(['/path/to/herp.js'])
-            );
-          });
-
-          it('should emit event EVENT_DEPENDENCY', function () {
-            expect(
-              () =>
-                resolver._resolvePartials(new Set(['derp', 'herp']), 'foo.js'),
-              'to emit from',
-              resolver,
-              Resolver.constants.EVENT_DEPENDENCY,
-              {filepath: '/path/to/foo.js', resolved: '/path/to/herp.js'}
-            );
-          });
-
-          describe('when the resolved partial is ignored', function () {
-            beforeEach(function () {
-              stubs.multimatch.returns({length: 1});
-            });
-
-            it('should return a set not containing the ignored resolved partial', function () {
-              expect(
-                resolver._resolvePartials(new Set(['derp', 'herp']), 'foo.js'),
-                'to equal',
-                new Set()
-              );
             });
           });
         });

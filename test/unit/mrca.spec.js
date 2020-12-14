@@ -98,14 +98,18 @@ describe('class MRCA', function () {
     const mrcaModule = rewiremock.proxy(
       () => require('../../src/mrca'),
       (r) => ({
-        [require.resolve('../../src/file-entry-cache')]: r.with(
-          stubs['file-entry-cache']
-        ),
-        [require.resolve('../../src/util')]: r.with(stubs.util),
-        [require.resolve('../../src/resolver')]: r.with(stubs.resolver),
-        [require.resolve('../../src/module-graph')]: r.with(
-          stubs['module-graph']
-        ),
+        [require.resolve('../../src/file-entry-cache')]: r
+          .with(stubs['file-entry-cache'])
+          .directChildOnly(),
+        [require.resolve('../../src/util')]: r
+          .with(stubs.util)
+          .directChildOnly(),
+        [require.resolve('../../src/resolver')]: r
+          .with(stubs.resolver)
+          .directChildOnly(),
+        [require.resolve('../../src/module-graph')]: r
+          .with(stubs['module-graph'])
+          .directChildOnly(),
       })
     );
     MRCA = mrcaModule.MRCA;

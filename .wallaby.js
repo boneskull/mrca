@@ -19,7 +19,7 @@ module.exports = () => ({
     runner: 'node',
     params: {
       // runner: `-r ${require.resolve('esm')}`,
-      env: `DEBUG=mrca*,cabinet*;NODE_PATH=${__dirname};UNEXPECTED_DEPTH=10`,
+      env: `DEBUG=mrca*,cabinet;NODE_PATH=${__dirname};UNEXPECTED_DEPTH=10`,
     },
   },
   debug: true,

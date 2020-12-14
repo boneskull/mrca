@@ -5,7 +5,6 @@ const {resolve, extname} = require('path');
 const multimatch = require('multimatch');
 const debug = require('debug')('mrca:resolver');
 const {existsSync} = require('fs');
-// const resolveFrom = require('resolve-from');
 const {EventEmitter} = require('events');
 
 const constants = {
@@ -52,18 +51,39 @@ class Resolver extends EventEmitter {
     ignore = new Set(),
   } = {}) {
     super();
+    /**
+     * Object for `dependency-tree` to track "seen" modules
+     * @private
+     */
     this._visited = {};
+    /**
+     * Current working directory
+     * @type {string}
+     */
     this.cwd = cwd;
+    /**
+     * Path to TS config file
+     * @type {string}
+     */
     this.tsConfigPath = tsConfigPath;
+    /**
+     * Path to webpack config file
+     * @type {string}
+     */
     this.webpackConfigPath = webpackConfigPath;
+    /**
+     * Paths/globs to ignore
+     * @type {Set<string>}
+     */
     this.ignore = new Set([...ignore]);
-    // this.ignore = new Set(globby.sync([...ignore], {cwd: this.cwd}));
+
     /* istanbul ignore next */
     if (require('debug').enabled('mrca:resolver')) {
       this.on(constants.EVENT_RESOLVED_DEPENDENCIES, (data) => {
         debug('event EVENT_RESOLVED_DEPENDENCIES emitted with data %o', data);
       });
     }
+    /* istanbul ignore next */
     debug('instantiated resolver working from cwd %s', this.cwd);
   }
 
@@ -117,31 +137,29 @@ class Resolver extends EventEmitter {
     }
 
     try {
-      debug('calling dependencyTree.toList with options %j', {
+      /**
+       * @type {import('dependency-tree').Options}
+       * @ignore
+       */
+      const depTreeOpts = {
         tsConfig: tsConfigPath,
         webpackConfig: webpackConfigPath,
         directory: this.cwd,
         filename: filepath,
         filter: (filepath) => {
-          debug('calling multimatch against %s for %o', filepath, ignore);
-          return !multimatch(filepath, ignore).length;
+          const result = !multimatch(filepath, ignore).length;
+          debug('is %s followed in %s? %s', filepath, ignore, result);
+          return result;
         },
         nonExistent,
         visited: this._visited,
-      });
-      const tree = dependencyTree.toList({
-        tsConfig: tsConfigPath,
-        webpackConfig: webpackConfigPath,
-        directory: this.cwd,
-        filename: filepath,
-        filter: (filepath) => {
-          debug('calling multimatch against %s for %o', filepath, ignore);
-          return !multimatch(filepath, ignore).length;
-        },
-        nonExistent,
-        visited: this._visited,
-      });
-      debug('TREE: %o', tree);
+        // @ts-ignore
+        noTypeDefinitions: true,
+      };
+      debug('dep tree opts: %o', depTreeOpts);
+      const tree = dependencyTree.toList(depTreeOpts);
+      debug('resolved: %o', tree);
+      debug('missing: %o', nonExistent);
       const resolved = new Set([...deps, ...tree]);
       resolved.delete(filepath);
       const missing = new Set(nonExistent);
@@ -154,139 +172,7 @@ class Resolver extends EventEmitter {
     } catch (err) {
       debug(err);
     }
-
-    // /* istanbul ignore next */
-    // debug('looking for partials in %s', filepath);
-    // /**
-    //  * @type {Set<string>}
-    //  * @ignore
-    //  */
-    // let unfilteredPartials;
-    // try {
-    //   unfilteredPartials = new Set(paperwork(filepath, {includeCore: false}));
-    //   /* istanbul ignore next */
-    //   debug('found partials in %s: %o', filepath, unfilteredPartials);
-    // } catch (err) {
-    //   // unclear how to reliably cause paperwork to throw
-    //   /* istanbul ignore next */
-    //   debug('precinct could not parse %s; %s', filepath, err);
-    //   /* istanbul ignore next */
-    //   return new Set();
-    // }
-
-    // /**
-    //  * @type {Set<string>}
-    //  * @ignore
-    //  */
-    // const resolvedDeps = new Set();
-
-    // /**
-    //  * Whether or not to perform "naive" module resolution via `require-from`.
-    //  * This is more performant, and is desirable if neither TypeScript nor
-    //  * Webpack is in use.
-    //  * @ignore
-    //  */
-    // let shouldDoNaiveResolution = true;
-    // } else {
-    //   // I _think_ this is right; if it's not a .js file then we
-    //   // want to let filing-cabinet handle it.
-    //   shouldDoNaiveResolution = false;
-    // }
-
-    // /**
-    //  * @type {Set<string>}
-    //  * @ignore
-    //  */
-    // let naivelyResolvedDeps = new Set();
-
-    // /**
-    //  * @type {Set<string>}
-    //  * @ignore
-    //  */
-    // let unresolvedPartials;
-    // if (shouldDoNaiveResolution) {
-    //   const naiveResult = this._tryNaivelyResolvePartials(
-    //     filepath,
-    //     unfilteredPartials
-    //   );
-    //   naivelyResolvedDeps = naiveResult.naivelyResolvedPartials;
-    //   unresolvedPartials = naiveResult.unresolvedPartials;
-    // } else {
-    //   unresolvedPartials = new Set(unfilteredPartials);
-    // }
-
-    // /* istanbul ignore next */
-    // if (naivelyResolvedDeps.size) {
-    //   /* istanbul ignore next */
-    //   debug('naively resolved deps: %o', naivelyResolvedDeps);
-    // }
-
-    // /**
-    //  * @type {Set<string>}
-    //  * @ignore
-    //  */
-    // let dependencyTreeResolvedDeps = new Set();
-
-    // if (unresolvedPartials.size) {
-    //   /**
-    //    * @type {Partial<FilingCabinetOptions>}
-    //    * @ignore
-    //    */
-    //   const cabinetOptions = {
-    //     webpackConfig: webpackConfigPath,
-    //     tsConfig: tsConfigPath,
-    //     noTypeDefinitions: true,
-    //   };
-    //   dependencyTreeResolvedDeps = this._resolvePartials(
-    //     unresolvedPartials,
-    //     filepath,
-    //     cabinetOptions
-    //   );
-    // }
-
-    // this.emit(constants.EVENT_RESOLVE_DEPENDENCIES_COMPLETE, {filepath});
-    // return new Set([
-    //   ...resolvedDeps,
-    //   ...dependencyTreeResolvedDeps,
-    //   ...naivelyResolvedDeps,
-    // ]);
   }
-
-  // /**
-  //  * Given a set of partial module names/paths, return an object containing a Set of paths to those that were found
-  //  * via `require.resolve()`, and another Set containing partials which could not be found this way
-  //  * @param {string} filepath - Filepath of module containing partials
-  //  * @param {Set<string>} [unfilteredPartials] - List of partials, if any
-  //  * @ignore
-  //  * @returns {{naivelyResolvedPartials: Set<string>, unresolvedPartials: Set<string>}}
-  //  */
-  // _tryNaivelyResolvePartials(filepath, unfilteredPartials = new Set()) {
-  //   if (!filepath) {
-  //     throw new TypeError('expected a nonempty string filepath');
-  //   }
-  //   filepath = resolve(this.cwd, filepath);
-  //   const naivelyResolvedPartials = new Set();
-  //   const ignore = [...this.ignore];
-  //   const unresolvedPartials = [...unfilteredPartials].reduce(
-  //     (acc, partial) => {
-  //       try {
-  //         const resolved = resolveFrom(dirname(filepath), partial);
-  //         if (multimatch(resolved, ignore).length) {
-  //           /* istanbul ignore next */
-  //           debug('%s is ignored', filepath);
-  //         } else {
-  //           naivelyResolvedPartials.add(resolved);
-  //           this.emit(constants.EVENT_DEPENDENCY, {filepath, resolved});
-  //         }
-  //       } catch (ignored) {
-  //         acc.add(partial);
-  //       }
-  //       return acc;
-  //     },
-  //     new Set()
-  //   );
-  //   return {naivelyResolvedPartials, unresolvedPartials};
-  // }
 
   /**
    * Configures `filing-cabinet` to resolve modules referenced in JS files.
@@ -438,7 +324,7 @@ exports.resolveDependencies = Resolver.resolveDependencies;
  * @property {string} cwd - Current working directory
  * @property {string} tsConfigPath - Path to `tsconfig.json`
  * @property {string} webpackConfigPath - Path to `webpack.config.js`
- * @property {Set<string>|string[]|string} ignore - Paths/globs to ignore
+ * @property {Set<string>|string[]} ignore - Paths/globs to ignore
  */
 
 /**
