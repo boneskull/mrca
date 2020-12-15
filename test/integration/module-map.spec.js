@@ -11,7 +11,7 @@ const expect = require('../expect');
  * @param {string} filename
  */
 const resolveFixturePath = (filename) =>
-  path.join(__dirname, 'fixtures', 'module-map', filename);
+  path.join(__dirname, 'fixtures', filename);
 
 const TEST_MODULE_MAP_CACHE_FILENAME = 'module-map-integration-test.cache.json';
 const TEST_FILE_ENTRY_CACHE_FILENAME = 'file-entry-integration-test.cache.json';

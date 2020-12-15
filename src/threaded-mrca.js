@@ -16,17 +16,19 @@ const constants = {
 class ThreadedMRCA extends MRCA {
   /**
    *
-   * @param {Partial<ThreadedMRCAOptions>} [opts]
+   * @param {ThreadedMRCAOptions} [opts]
    */
   constructor(opts = {}) {
     super(opts);
     const worker = (this._worker = new Worker(WORKER_PATH, {
-      workerData: {
+      workerData: /**
+       * @type {import('./resolver').ResolverOptions}
+       */ ({
         cwd: this.cwd,
         tsConfigPath: this.tsConfigPath,
         webpackConfigPath: this.webpackConfigPath,
         ignore: this.ignore,
-      },
+      }),
     }));
     const timeout = opts.workerTimeout || constants.DEFAULT_TIMEOUT;
 
@@ -57,6 +59,7 @@ class ThreadedMRCA extends MRCA {
   }
 
   /**
+   * Same as {@link MRCA#_hydrate}, except waits for worker to be ready.
    * @ignore
    * @override
    * @param {Set<string>|string[]} filepaths -
@@ -80,14 +83,16 @@ class ThreadedMRCA extends MRCA {
     return new Promise((resolve, reject) => {
       /**
        * @type {import('./mrca').DependencyInfo}
+       * @ignore
        */
       const resolvedDependencyMap = new Map();
       /**
-       * @param {string[]} filepaths
+       * @param {string[]} filepathStack
+       * @ignore
        */
-      const postFindDependenciesMessage = (filepaths) => {
-        if (filepaths.length) {
-          const filepath = filepaths.pop();
+      const postFindDependenciesMessage = (filepathStack) => {
+        if (filepathStack.length) {
+          const filepath = filepathStack.pop();
           worker.postMessage({
             command: 'find-dependencies',
             payload: {
@@ -101,16 +106,24 @@ class ThreadedMRCA extends MRCA {
           worker.removeListener('error', reject);
           /* istanbul ignore next */
           debug('worker done resolving deps for %d files', filepaths.length);
+          worker.postMessage({
+            command: 'disconnect',
+          });
           resolve(resolvedDependencyMap);
         }
       };
 
       const onMessage = ({event, data}) => {
+        /* istanbul ignore next */
         debug('received event %s with data %o', event, data);
         switch (event) {
           // when the worker resolves a dependency for our file, it sends this event
           case Resolver.constants.EVENT_RESOLVED_DEPENDENCIES: {
-            const {filepath, resolved, missing} = data;
+            const {
+              filepath,
+              resolved,
+              missing,
+            } = /** @type {import('./resolver').ResolvedDependenciesEventData} */ (data);
             if (resolvedDependencyMap.has(filepath)) {
               const dependencyData = resolvedDependencyMap.get(filepath);
               dependencyData.resolved = new Set(resolved);
@@ -121,14 +134,15 @@ class ThreadedMRCA extends MRCA {
                 missing: new Set(missing),
               });
             }
-            postFindDependenciesMessage(filepaths);
+            postFindDependenciesMessage(filepathStack);
           }
         }
       };
 
       worker.on('message', onMessage).on('error', reject);
 
-      postFindDependenciesMessage(filepaths);
+      const filepathStack = [...filepaths];
+      postFindDependenciesMessage(filepathStack);
     });
   }
 
@@ -163,11 +177,9 @@ exports.ThreadedMRCA = ThreadedMRCA;
 
 /**
  * @typedef {Object} ThreadedMRCASpecificOptions
- * @property {number} workerTimeout - How long to wait for worker to come online in ms; default 1000ms
+ * @property {number} [workerTimeout] - How long to wait for worker to come online in ms; default 1000ms
  */
 
 /**
- * @typedef {import('./module-map').ModuleMapOptions & ThreadedMRCASpecificOptions} ThreadedMRCAOptions
+ * @typedef {import('./mrca').MRCAOptions & ThreadedMRCASpecificOptions} ThreadedMRCAOptions
  */
-
-/** @typedef {import('./module-map-node').ModuleMapNode} ModuleMapNode */

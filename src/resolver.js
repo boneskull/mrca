@@ -42,7 +42,7 @@ const constants = {
 class Resolver extends EventEmitter {
   /**
    * Sets some lovely instance properties
-   * @param {Partial<ResolveDependenciesOptions>} [opts]
+   * @param {Partial<ResolverOptions>} [opts]
    */
   constructor({
     cwd = process.cwd(),
@@ -55,7 +55,7 @@ class Resolver extends EventEmitter {
      * Object for `dependency-tree` to track "seen" modules
      * @private
      */
-    this._visited = {};
+    this._cache = Object.create(null);
     /**
      * Current working directory
      * @type {string}
@@ -79,9 +79,12 @@ class Resolver extends EventEmitter {
 
     /* istanbul ignore next */
     if (require('debug').enabled('mrca:resolver')) {
-      this.on(constants.EVENT_RESOLVED_DEPENDENCIES, (data) => {
-        debug('event EVENT_RESOLVED_DEPENDENCIES emitted with data %o', data);
-      });
+      this.on(
+        constants.EVENT_RESOLVED_DEPENDENCIES,
+        /** @param {ResolvedDependenciesEventData} data */ (data) => {
+          debug('event EVENT_RESOLVED_DEPENDENCIES emitted with data %o', data);
+        }
+      );
     }
     /* istanbul ignore next */
     debug('instantiated resolver working from cwd %s', this.cwd);
@@ -90,14 +93,28 @@ class Resolver extends EventEmitter {
   /**
    * Returns a `Set` of all resolved dependency paths for `filepath`
    * @param {string} filepath - Filepath
+   * @param {ResolveDependenciesOptions} opts - Options
    * @public
-   * @returns {ResolvedDependencies}
+   * @returns {ResolvedDependencyInfo}
    */
-  resolveDependencies(filepath) {
+  resolveDependencies(
+    filepath,
+    {refreshPaths = new Set(), force = false} = {}
+  ) {
     if (!filepath) {
       throw new TypeError('expected nonempty string parameter `filepath`');
     }
     filepath = resolve(this.cwd, filepath);
+
+    if (force) {
+      this.clearCache();
+    } else {
+      refreshPaths = new Set(refreshPaths);
+      if (refreshPaths.size) {
+        this.clearCacheForFiles(refreshPaths);
+      }
+    }
+
     const ignore = [...this.ignore];
     const nonExistent = [];
     /**
@@ -136,42 +153,42 @@ class Resolver extends EventEmitter {
       }
     }
 
-    try {
-      /**
-       * @type {import('dependency-tree').Options}
-       * @ignore
-       */
-      const depTreeOpts = {
-        tsConfig: tsConfigPath,
-        webpackConfig: webpackConfigPath,
-        directory: this.cwd,
-        filename: filepath,
-        filter: (filepath) => {
-          const result = !multimatch(filepath, ignore).length;
-          debug('is %s followed in %s? %s', filepath, ignore, result);
-          return result;
-        },
-        nonExistent,
-        visited: this._visited,
-        // @ts-ignore
-        noTypeDefinitions: true,
-      };
-      debug('dep tree opts: %o', depTreeOpts);
-      const tree = dependencyTree.toList(depTreeOpts);
-      debug('resolved: %o', tree);
-      debug('missing: %o', nonExistent);
-      const resolved = new Set([...deps, ...tree]);
-      resolved.delete(filepath);
-      const missing = new Set(nonExistent);
-      this.emit(constants.EVENT_RESOLVED_DEPENDENCIES, {
+    /**
+     * @type {import('dependency-tree').Options}
+     * @ignore
+     */
+    const depTreeOpts = {
+      tsConfig: tsConfigPath,
+      webpackConfig: webpackConfigPath,
+      directory: this.cwd,
+      filename: filepath.trim(),
+      // `dot: true` is for matching `.foo/node_modules/bar` when `**/node_modules/*` given.
+      filter: (filepath) => !multimatch(filepath, ignore, {dot: true}).length,
+      nonExistent,
+      visited: this._cache,
+      // @ts-ignore
+      noTypeDefinitions: true,
+    };
+    debug('dep tree opts: %o', depTreeOpts);
+    const tree = dependencyTree.toList(depTreeOpts);
+    debug('resolved: %o', tree);
+    debug('missing: %o', nonExistent);
+
+    const resolved = new Set([...deps, ...tree]);
+    // the filepath always appears in this list, but we don't want it.
+    resolved.delete(filepath);
+
+    const missing = new Set(nonExistent);
+
+    this.emit(
+      constants.EVENT_RESOLVED_DEPENDENCIES,
+      /** @type {ResolvedDependenciesEventData} */ ({
         filepath,
         resolved,
         missing,
-      });
-      return {resolved, missing};
-    } catch (err) {
-      debug(err);
-    }
+      })
+    );
+    return {resolved, missing};
   }
 
   /**
@@ -202,73 +219,6 @@ class Resolver extends EventEmitter {
     return this.webpackConfigPath;
   }
 
-  // /**
-  //  * Given a set of partial module names/paths, return an array of resolved paths via `filing-cabinet`'s static analysis
-  //  *
-  //  * @param {Set<string>} unresolvedPartials - A Set of partials
-  //  * @param {string} filepath - Filename for `filing-cabinet` options
-  //  * @param {Partial<FilingCabinetOptions>} [cabinetOptions]  - Options for `filing-cabinet`
-  //  * @returns {Set<string>} Resolved paths
-  //  * @ignore
-  //  */
-  // _resolvePartials(unresolvedPartials, filepath, cabinetOptions = {}) {
-  // filepath = resolve(this.cwd, filepath);
-  // try {
-  //   const tree = dependencyTree({
-  //     ...cabinetOptions,
-  //     filename: filepath,
-  //     filter: (filepath) => this.ignore.has(filepath),
-  //   });
-  // } catch (err) {}
-  // const resolvedPartials = new Set();
-  // const ignore = [...this.ignore];
-  // if (!unresolvedPartials || !unresolvedPartials[Symbol.iterator]) {
-  //   throw new TypeError('expected iterable parameter `unresolvedPartials`');
-  // }
-  // if (!filepath) {
-  //   // if `unresolvedPartials` is _empty_, this is not strictly necessary
-  //   throw new TypeError(
-  //     'expected nonempty string `filepath` for second parameter'
-  //   );
-  // }
-  // filepath = resolve(this.cwd, filepath);
-  // for (const partial of unresolvedPartials) {
-  //   /* istanbul ignore next */
-  //   debug(
-  //     'using filing-cabinet to resolve partial "%s" with config %o',
-  //     partial,
-  //     cabinetOptions
-  //   );
-  //   try {
-  //     const resolved = cabinet({
-  //       partial,
-  //       filename: filepath,
-  //       directory: this.cwd,
-  //       ...cabinetOptions,
-  //     });
-  //     if (!resolved) {
-  //       /* istanbul ignore next */
-  //       debug('filing-cabinet could not resolve module "%s"!', partial);
-  //     } else {
-  //       if (multimatch(resolved, ignore).length) {
-  //         /* istanbul ignore next */
-  //         debug('%s is ignored', resolved);
-  //       } else {
-  //         /* istanbul ignore next */
-  //         debug('filing-cabinet resolved %s: %o', partial, resolved);
-  //         resolvedPartials.add(resolved);
-  //         this.emit(constants.EVENT_DEPENDENCY, {filepath, resolved});
-  //       }
-  //     }
-  //   } catch (err) {
-  //     throw new Error(
-  //       `error when attempting to resolve partial ${partial} from file ${filepath}: ${err}`
-  //     );
-  //   }
-  // }
-  // return resolvedPartials;
-  // }
-
   /**
    * Configures `filing-cabinet` to resolve modules referenced in TS files
    * @ignore
@@ -298,7 +248,7 @@ class Resolver extends EventEmitter {
   /**
    * Resolve deps for a file
    * @param {string} filepath - File to resolve dependencies for
-   * @param {Partial<ResolveDependenciesOptions>} [opts] - Options
+   * @param {ResolverOptions} [opts] - Options
    */
   static resolveDependencies(filepath, opts = {}) {
     return Resolver.create(opts).resolveDependencies(filepath);
@@ -306,10 +256,33 @@ class Resolver extends EventEmitter {
 
   /**
    * Instantiates a new {@link Resolver}
-   * @param {Partial<ResolveDependenciesOptions>} [opts] - Options
+   * @param {ResolverOptions} [opts] - Options
    */
   static create(opts = {}) {
     return new Resolver(opts);
+  }
+
+  /**
+   * Removes filepaths from cache
+   * @param {string[]|Set<string>} filepaths - Filepaths to remove from cache
+   * @returns {Resolver}
+   */
+  clearCacheForFiles(filepaths) {
+    filepaths = new Set(filepaths);
+    for (const filepath of filepaths) {
+      delete this._cache[filepath];
+    }
+    debug('cleared files from cache: %o', filepaths);
+    return this;
+  }
+
+  /**
+   * Clears entire cache
+   * @returns {Resolver}
+   */
+  clearCache() {
+    this._cache = Object.create(null);
+    return this;
   }
 }
 
@@ -319,12 +292,12 @@ exports.Resolver = Resolver;
 exports.resolveDependencies = Resolver.resolveDependencies;
 
 /**
- * Options for {@link resolveDependencies}
- * @typedef {Object} ResolveDependenciesOptions
- * @property {string} cwd - Current working directory
- * @property {string} tsConfigPath - Path to `tsconfig.json`
- * @property {string} webpackConfigPath - Path to `webpack.config.js`
- * @property {Set<string>|string[]} ignore - Paths/globs to ignore
+ * Options for {@link resolveDependencies} and {@link Resolver} constructor
+ * @typedef {Object} ResolverOptions
+ * @property {string} [cwd] - Current working directory
+ * @property {string} [tsConfigPath] - Path to `tsconfig.json`
+ * @property {string} [webpackConfigPath] - Path to `webpack.config.js`
+ * @property {Set<string>|string[]} [ignore] - Paths/globs to ignore
  */
 
 /**
@@ -344,19 +317,10 @@ exports.resolveDependencies = Resolver.resolveDependencies;
  */
 
 /**
- * @typedef {import('filing-cabinet').Options} FilingCabinetOptions
- */
-
-/**
  * Data emitted by {@link Resolver#dependency} event.
  * @typedef {Object} DependencyData
  * @property {string} filepath - Filepath having dependency `resolved`
  * @property {string} resolved - Resolved path to dependency
- */
-
-/**
- * @typedef {Object} ResolveCompleteData
- * @property {string} filepath - Filepath having all dependencies found
  */
 
 /**
@@ -366,7 +330,23 @@ exports.resolveDependencies = Resolver.resolveDependencies;
  */
 
 /**
- * @typedef {Object} ResolvedDependencies
+ * @typedef {Object} ResolvedDependencyInfo
  * @property {Set<string>} resolved - List of resolved deps
  * @property {Set<string>} missing - List of unresolvable deps
+ */
+
+/**
+ * @typedef {ResolvedDependencyInfo & {filepath: string}} ResolvedDependenciesEventData
+ * @property {string} filepath - Filepath which deps were resolved for
+ */
+
+/**
+ * @typedef {Object} ResolveDependenciesOptions
+ * @property {string[]|Set<string>} [refreshPaths] - List of paths to force-refresh; removes from cache
+ * @property {boolean} [force=false] - If truthy, obliterate cache first. Takes precedence over `refreshPaths`
+ */
+
+/**
+ * @typedef {Object} ClearCacheOptions
+ * @property {string[]|Set<string>} [filepaths] - Only clear cache for these files
  */

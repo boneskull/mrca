@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "posttest": "markdownlint README.md && eslint .",
-    "test": "nyc mocha",
+    "test": "nyc mocha \"test/**/*.spec.js\"",
     "release": "standard-version -a",
     "generate-declarations": "tsc",
     "generate-docs": "jsdoc2md --files 'src/*.js' --configure jsdoc.conf.json > API.md",
