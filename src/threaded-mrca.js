@@ -20,36 +20,42 @@ class ThreadedMRCA extends MRCA {
    */
   constructor(opts = {}) {
     super(opts);
-    const worker = (this._worker = new Worker(WORKER_PATH, {
-      workerData: /**
-       * @type {import('./resolver').ResolverOptions}
-       */ ({
-        cwd: this.cwd,
-        tsConfigPath: this.tsConfigPath,
-        webpackConfigPath: this.webpackConfigPath,
-        ignore: this.ignore,
-      }),
-    }));
-    worker.unref();
-    const timeout = opts.workerTimeout || constants.DEFAULT_TIMEOUT;
+    this._timeout =
+      opts.workerTimeout === undefined
+        ? constants.DEFAULT_TIMEOUT
+        : opts.workerTimeout;
 
-    /**
-     * When this resolves, the worker has come online.
-     * @ignore
-     * @type {Promise<void>}
-     */
-    this._online = new Promise((resolve, reject) => {
-      const t = setTimeout(() => {
-        worker
-          .terminate()
-          .catch((err) => {
-            /* istanbul ignore next */
-            reject(err);
-          })
-          .then(() => {
-            reject(new Error(`worker not ready in ${timeout} ms`));
-          });
-      }, timeout);
+    this._online = this.startWorker().catch((err) => {
+      this.emit('error', err);
+    });
+  }
+
+  async startWorker() {
+    return new Promise((resolve, reject) => {
+      this._worker = new Worker(WORKER_PATH, {
+        workerData: /**
+         * @type {import('./resolver').ResolverOptions}
+         */ ({
+          cwd: this.cwd,
+          tsConfigPath: this.tsConfigPath,
+          webpackConfigPath: this.webpackConfigPath,
+          ignore: this.ignore,
+        }),
+      });
+      this._worker.unref();
+      const t = setTimeout(async () => {
+        try {
+          await this._worker.terminate();
+        } catch (err) {
+          reject(
+            new Error(
+              `Worker not ready in ${this._timeout} ms. As a bonus, termination failed with: ${err}`
+            )
+          );
+          return;
+        }
+        reject(new Error(`Worker not ready in ${this._timeout} ms`));
+      }, this._timeout);
       this._worker
         .once('online', () => {
           clearTimeout(t);

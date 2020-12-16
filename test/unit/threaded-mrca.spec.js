@@ -89,14 +89,30 @@ describe('class ThreadedMRCA', function () {
   });
 
   describe('constructor', function () {
-    it('should create a Worker', function () {
-      expect(new ThreadedMRCA(), 'to have property', '_worker');
+    beforeEach(function () {
+      sinon.stub(ThreadedMRCA.prototype, 'startWorker').resolves();
     });
 
-    it('should create a Promise which resolves when the Worker is online', async function () {
+    it('should start a Worker thread', function () {
       const tm = new ThreadedMRCA();
-      tm._worker.emit('online');
-      return expect(tm._online, 'to be fulfilled');
+      expect(tm.startWorker, 'was called once');
+    });
+
+    describe('when the worker thread fails to come online before the timeout expires', function () {
+      beforeEach(function () {
+        ThreadedMRCA.prototype.startWorker.rejects(new Error('timeout!'));
+      });
+
+      it('should emit an "error" event', async function () {
+        const tm = new ThreadedMRCA();
+        return expect(
+          () => tm._online,
+          'to emit from',
+          tm,
+          'error',
+          'timeout!'
+        );
+      });
     });
   });
 
@@ -104,13 +120,69 @@ describe('class ThreadedMRCA', function () {
     let tm;
 
     beforeEach(async function () {
+      sinon.stub(ThreadedMRCA.prototype, 'startWorker').resolves();
+
       tm = new ThreadedMRCA({
         entryFiles: ['foo.js', 'bar.js', 'baz.js'],
       });
-      setTimeout(() => {
-        tm._worker.emit('online');
-      });
+
       return tm._online;
+    });
+
+    describe('startWorker()', function () {
+      beforeEach(function () {
+        tm.startWorker.restore();
+      });
+
+      it('should return a Promise which resolves when the Worker is online', async function () {
+        const promise = tm.startWorker();
+        tm._worker.emit('online');
+        return expect(promise, 'to be fulfilled');
+      });
+
+      describe('when the worker is not online before the timeout is exceeded', function () {
+        beforeEach(function () {
+          tm._timeout = 10;
+        });
+
+        it('should reject', async function () {
+          return expect(tm.startWorker(), 'to be rejected');
+        });
+
+        it('should terminate the worker', async function () {
+          try {
+            await tm.startWorker();
+            /* istanbul ignore next */
+            return Promise.reject(new Error('failed to reject!'));
+          } catch (ignored) {
+            return expect(tm._worker.terminate, 'was called once');
+          }
+        });
+
+        describe('when termination fails', function () {
+          let err;
+
+          beforeEach(function () {
+            err = new Error('termination failed');
+          });
+
+          it('should reject with a termination error', async function () {
+            // tm._worker does not exist until startWorker creates it...
+            const promise = tm.startWorker();
+            tm._worker.terminate.rejects(err);
+            return expect(
+              promise,
+              'to be rejected with',
+              /termination failed$/i
+            );
+          });
+        });
+      });
+
+      it('should unref the worker', function () {
+        const tm = new ThreadedMRCA();
+        expect(tm._worker.unref, 'was called once');
+      });
     });
 
     describe('findAllDependencies()', function () {
@@ -119,17 +191,17 @@ describe('class ThreadedMRCA', function () {
       beforeEach(async function () {
         EVENT_RESOLVED_DEPENDENCIES =
           stubs.resolver.Resolver.constants.EVENT_RESOLVED_DEPENDENCIES;
+        tm._worker = new mocks.Worker();
       });
 
-      it('should reject if the worker fails to come online', async function () {
-        tm._online = new Promise((resolve, reject) => {
-          setTimeout(() => reject(new Error('bad')), 50);
+      describe('when the worker fails to come online', function () {
+        beforeEach(function () {
+          tm._online = Promise.reject(new Error());
         });
-        return expect(
-          tm.findAllDependencies(['foo.js']),
-          'to be rejected with',
-          /bad/
-        );
+
+        it('should reject', async function () {
+          return expect(tm.findAllDependencies(), 'to be rejected');
+        });
       });
 
       it('should post a `find-dependencies` command to the worker', async function () {
@@ -226,6 +298,10 @@ describe('class ThreadedMRCA', function () {
     });
 
     describe('terminate()', function () {
+      beforeEach(function () {
+        tm._worker = new mocks.Worker();
+      });
+
       describe('when worker exits successfully', function () {
         beforeEach(function () {
           tm._worker.terminate.resolves(0);
