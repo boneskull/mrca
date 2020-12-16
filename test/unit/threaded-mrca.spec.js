@@ -41,15 +41,29 @@ describe('class ThreadedMRCA', function () {
 
     MRCA.prototype._hydrate = sinon.stub().resolves();
 
-    const Worker = class Worker extends EventEmitter {};
+    const MockWorker = class MockWorker extends EventEmitter {
+      constructor() {
+        super();
+        /**
+         * @type {SinonStub<Parameters<Worker['unref']>,ReturnType<Worker['unref']>>}
+         */
+        this.unref = sinon.stub();
+        /**
+         * @type {SinonStub<Parameters<Worker['terminate']>,ReturnType<Worker['terminate']>>}
+         */
 
-    Worker.prototype.unref = sinon.stub();
-    Worker.prototype.terminate = sinon.stub().resolves();
-    Worker.prototype.postMessage = sinon.stub();
+        this.terminate = sinon.stub().resolves();
+
+        /**
+         * @type {SinonStub<Parameters<Worker['postMessage']>,ReturnType<Worker['postMessage']>>}
+         */
+        this.postMessage = sinon.stub();
+      }
+    };
 
     mocks = {
       MRCA,
-      Worker,
+      MockWorker,
     };
 
     stubs = {
@@ -66,9 +80,8 @@ describe('class ThreadedMRCA', function () {
         constants: {},
       },
       worker_threads: {
-        Worker: mocks.Worker,
+        Worker: mocks.MockWorker,
       },
-      /** @type {SinonStub} */
       cwd: undefined,
     };
 
@@ -117,6 +130,9 @@ describe('class ThreadedMRCA', function () {
   });
 
   describe('instance method', function () {
+    /**
+     * @type {ThreadedMRCA}
+     */
     let tm;
 
     beforeEach(async function () {
@@ -191,7 +207,7 @@ describe('class ThreadedMRCA', function () {
       beforeEach(async function () {
         EVENT_RESOLVED_DEPENDENCIES =
           stubs.resolver.Resolver.constants.EVENT_RESOLVED_DEPENDENCIES;
-        tm._worker = new mocks.Worker();
+        tm._worker = new mocks.MockWorker();
       });
 
       describe('when the worker fails to come online', function () {
@@ -205,7 +221,7 @@ describe('class ThreadedMRCA', function () {
       });
 
       it('should post a `find-dependencies` command to the worker', async function () {
-        /** @type {SinonStub} */ (tm._worker.postMessage)
+        tm._worker.postMessage
           .onFirstCall()
           // NOT A LAMBDA
           .callsFake(function () {
@@ -216,7 +232,6 @@ describe('class ThreadedMRCA', function () {
               });
             }, 50);
           });
-        // });
         await tm.findAllDependencies(['foo.js']);
         expect(tm._worker.postMessage, 'to have a call satisfying', [
           {command: 'find-dependencies', payload: {filepath: 'foo.js'}},
@@ -225,7 +240,7 @@ describe('class ThreadedMRCA', function () {
 
       describe('when the worker finds dependencies', function () {
         it('should aggregate into a single result', async function () {
-          const postMessage = /** @type {SinonStub} */ (tm._worker.postMessage);
+          const postMessage = tm._worker.postMessage;
           postMessage
             .onFirstCall()
             // NOT A LAMBDA
@@ -299,7 +314,7 @@ describe('class ThreadedMRCA', function () {
 
     describe('terminate()', function () {
       beforeEach(function () {
-        tm._worker = new mocks.Worker();
+        tm._worker = new mocks.MockWorker();
       });
 
       describe('when worker exits successfully', function () {
@@ -362,11 +377,8 @@ describe('class ThreadedMRCA', function () {
 });
 
 /**
- * @typedef {import('sinon').SinonStub} SinonStub
- */
-
-/**
- * @typedef {import('sinon').SinonSpy} SinonSpy
+ * @template T,U
+ * @typedef {import('sinon').SinonStub<T,U>} SinonStub<T,U>
  */
 
 /**
@@ -379,4 +391,17 @@ describe('class ThreadedMRCA', function () {
 
 /**
  * @typedef {import('../../src/module-map').ModuleMapOptions} ModuleMapOptions
+ */
+
+/**
+ * @typedef {import('worker_threads').Worker['postMessage']} PostMessage
+ */
+
+/**
+ * @template T
+ * @typedef {import('sinon').SinonStubbedInstance<T>} SinonStubbedInstance<T>
+ */
+
+/**
+ * @typedef {import('worker_threads').Worker} Worker
  */

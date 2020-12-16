@@ -1090,11 +1090,12 @@ describe('class MRCA', function () {
 
 /**
  * @template T,U
- * @typedef {import('sinon').SinonStub} SinonStub<T,U>
+ * @typedef {import('sinon').SinonStub<T,U>} SinonStub<T,U>
  */
 
 /**
- * @typedef {import('sinon').SinonSpy} SinonSpy
+ * @template T,U
+ * @typedef {import('sinon').SinonSpy<T,U>} SinonSpy<T,U>
  */
 
 /**
@@ -1107,10 +1108,11 @@ describe('class MRCA', function () {
  */
 
 /**
- * @typedef {import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/file-entry-cache').FileEntryCache>> & {create: import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/file-entry-cache').FileEntryCache>>}} MockFileEntryCache
+ * @typedef {import('../../src/file-entry-cache').FileEntryCache} FileEntryCache
  */
+
 /**
- * @typedef {import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/module-graph').ModuleGraph>> & {create: import('sinon').SinonSpy<any,SinonStubbedInstance<import('../../src/module-graph').ModuleGraph>>}} MockModuleGraph
+ * @typedef {SinonSpy<any,SinonStubbedInstance<FileEntryCache>> & {create: SinonSpy<any,SinonStubbedInstance<FileEntryCache>>}} MockFileEntryCache
  */
 
 /**
@@ -1118,7 +1120,7 @@ describe('class MRCA', function () {
  */
 
 /**
- * @typedef {import('../../src/file-entry-cache').FileEntryCache} FileEntryCache
+ * @typedef {SinonSpy<any,SinonStubbedInstance<ModuleGraph>> & {create: SinonSpy<any,SinonStubbedInstance<ModuleGraph>>}} MockModuleGraph
  */
 
 /**
