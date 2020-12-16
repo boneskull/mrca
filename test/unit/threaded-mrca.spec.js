@@ -9,10 +9,6 @@ describe('class ThreadedMRCA', function () {
   let stubs;
   let mocks;
   /**
-   * @type {import('../../src/threaded-mrca').ThreadedMRCA}
-   */
-  let tm;
-  /**
    * @type {typeof import('../../src/threaded-mrca').ThreadedMRCA}
    */
   let ThreadedMRCA;
@@ -40,20 +36,15 @@ describe('class ThreadedMRCA', function () {
         super();
         this.fileEntryCache = FileEntryCache.create();
         this.entryFiles = new Set(entryFiles);
-        this._hydrate = sinon.stub().resolves();
-        this.ready = Promise.resolve();
       }
     };
 
-    const Worker = class Worker extends EventEmitter {
-      constructor() {
-        super();
-        setTimeout(() => {
-          this.emit('online');
-        }, 50);
-      }
-    };
+    MRCA.prototype._hydrate = sinon.stub().resolves();
 
+    const Worker = class Worker extends EventEmitter {};
+
+    Worker.prototype.unref = sinon.stub();
+    Worker.prototype.terminate = sinon.stub().resolves();
     Worker.prototype.postMessage = sinon.stub();
 
     mocks = {
@@ -80,6 +71,7 @@ describe('class ThreadedMRCA', function () {
       /** @type {SinonStub} */
       cwd: undefined,
     };
+
     const threadedMRCAModule = rewiremock.proxy(
       () => require('../../src/threaded-mrca'),
       (r) => ({
@@ -92,6 +84,7 @@ describe('class ThreadedMRCA', function () {
         worker_threads: r.with(stubs.worker_threads).directChildOnly(),
       })
     );
+
     ThreadedMRCA = threadedMRCAModule.ThreadedMRCA;
   });
 
@@ -108,15 +101,24 @@ describe('class ThreadedMRCA', function () {
   });
 
   describe('instance method', function () {
+    let tm;
+
+    beforeEach(async function () {
+      tm = new ThreadedMRCA({
+        entryFiles: ['foo.js', 'bar.js', 'baz.js'],
+      });
+      setTimeout(() => {
+        tm._worker.emit('online');
+      });
+      return tm._online;
+    });
+
     describe('findAllDependencies()', function () {
       let EVENT_RESOLVED_DEPENDENCIES;
 
-      beforeEach(function () {
+      beforeEach(async function () {
         EVENT_RESOLVED_DEPENDENCIES =
           stubs.resolver.Resolver.constants.EVENT_RESOLVED_DEPENDENCIES;
-        tm = new ThreadedMRCA({
-          entryFiles: ['foo.js', 'bar.js', 'baz.js'],
-        });
       });
 
       it('should reject if the worker fails to come online', async function () {
@@ -131,7 +133,6 @@ describe('class ThreadedMRCA', function () {
       });
 
       it('should post a `find-dependencies` command to the worker', async function () {
-        // emitting the 'deps complete' event should cause `findAllDependencies()` to resolve.
         /** @type {SinonStub} */ (tm._worker.postMessage)
           .onFirstCall()
           // NOT A LAMBDA
@@ -150,8 +151,8 @@ describe('class ThreadedMRCA', function () {
         ]);
       });
 
-      describe('when dependencies have already been found', function () {
-        it('should not attempt to find dependencies again', async function () {
+      describe('when the worker finds dependencies', function () {
+        it('should aggregate into a single result', async function () {
           const postMessage = /** @type {SinonStub} */ (tm._worker.postMessage);
           postMessage
             .onFirstCall()
@@ -221,6 +222,64 @@ describe('class ThreadedMRCA', function () {
             ])
           );
         });
+      });
+    });
+
+    describe('terminate()', function () {
+      describe('when worker exits successfully', function () {
+        beforeEach(function () {
+          tm._worker.terminate.resolves(0);
+        });
+
+        it('should resolve', async function () {
+          return expect(tm.terminate(), 'to be fulfilled');
+        });
+      });
+
+      describe('when the worker exits with a non-zero code', function () {
+        beforeEach(function () {
+          tm._worker.terminate.resolves(1);
+        });
+
+        it('should reject', async function () {
+          return expect(tm.terminate(), 'to be rejected with', {code: 1});
+        });
+      });
+    });
+
+    describe('_hydrate()', function () {
+      describe('when the worker is online', function () {
+        it('should delegate to superclass', async function () {
+          await tm._hydrate(['foo.js']);
+          expect(
+            // gets the superclass. thanks, stackoverflow!
+            Object.getPrototypeOf(Object.getPrototypeOf(tm))._hydrate,
+            'to have a call satisfying',
+            [['foo.js']]
+          );
+        });
+      });
+
+      describe('when the worker is not yet online', function () {
+        it('should not (yet) delegate to its superclass', async function () {
+          tm._online = new Promise((resolve) => {
+            setTimeout(resolve, 50);
+          });
+          tm._hydrate(['foo.js']);
+          expect(
+            Object.getPrototypeOf(Object.getPrototypeOf(tm))._hydrate,
+            'was not called'
+          );
+          return tm._online;
+        });
+      });
+    });
+  });
+
+  describe('static method', function () {
+    describe('create()', function () {
+      it('should return a new ThreadedMRCA instance', function () {
+        expect(ThreadedMRCA.create(), 'to be a', ThreadedMRCA);
       });
     });
   });

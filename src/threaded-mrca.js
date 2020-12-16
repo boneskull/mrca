@@ -30,6 +30,7 @@ class ThreadedMRCA extends MRCA {
         ignore: this.ignore,
       }),
     }));
+    worker.unref();
     const timeout = opts.workerTimeout || constants.DEFAULT_TIMEOUT;
 
     /**
@@ -117,23 +118,16 @@ class ThreadedMRCA extends MRCA {
         /* istanbul ignore next */
         debug('received event %s with data %o', event, data);
         switch (event) {
-          // when the worker resolves a dependency for our file, it sends this event
           case Resolver.constants.EVENT_RESOLVED_DEPENDENCIES: {
             const {
               filepath,
               resolved,
               missing,
             } = /** @type {import('./resolver').ResolvedDependenciesEventData} */ (data);
-            if (resolvedDependencyMap.has(filepath)) {
-              const dependencyData = resolvedDependencyMap.get(filepath);
-              dependencyData.resolved = new Set(resolved);
-              dependencyData.missing = new Set(missing);
-            } else {
-              resolvedDependencyMap.set(filepath, {
-                resolved: new Set(resolved),
-                missing: new Set(missing),
-              });
-            }
+            resolvedDependencyMap.set(filepath, {
+              resolved: new Set(resolved),
+              missing: new Set(missing),
+            });
             postFindDependenciesMessage(filepathStack);
           }
         }
@@ -162,10 +156,15 @@ class ThreadedMRCA extends MRCA {
    */
   async terminate() {
     const code = await this._worker.terminate();
-    if (code !== 1) {
-      throw new Error(
+    if (code !== 0) {
+      /**
+       * @type {import('child_process').ExecException}
+       */
+      const err = new Error(
         `received unexpected exit code from terminated worker: ${code}`
       );
+      err.code = code;
+      throw err;
     } else {
       debug('worker terminated successfully');
     }

@@ -18,7 +18,6 @@ const resolver = Resolver.create(workerData || {});
  */
 const commands = {
   FIND_DEPENDENCIES: 'find-dependencies',
-  DISCONNECT: 'disconnect',
 };
 
 /**
@@ -28,11 +27,10 @@ const listener = (data) => {
   switch (data.command) {
     case commands.FIND_DEPENDENCIES: {
       const {payload} = data;
-      resolver.resolveDependencies(payload.filepath);
-      break;
-    }
-    case commands.DISCONNECT: {
-      parentPort.removeListener('message', listener);
+      resolver.resolveDependencies(payload.filepath, {
+        refreshPaths: payload.refreshPaths,
+        force: payload.force,
+      });
       break;
     }
     default:
@@ -71,4 +69,6 @@ parentPort.on('message', listener);
 /**
  * @typedef {Object} FindDependenciesCommandPayload
  * @property {string} filepath
+ * @property {string[]|Set<string>} [refreshPaths]
+ * @property {boolean} [force]
  */
