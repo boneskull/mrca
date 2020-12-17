@@ -108,5 +108,40 @@ describe('ModuleGraph', function () {
         );
       });
     });
+
+    describe('compact()', function () {
+      beforeEach(function () {
+        mg.import({
+          attributes: {},
+          nodes: [
+            {key: 'herp.js', attributes: {entryFile: true}},
+            {key: 'quux.js', attributes: {entryFile: true}},
+            {key: 'derp.js', attributes: {missing: true}},
+            {key: 'foo.js'},
+            {key: 'bar.js'},
+            {key: 'baz.js'},
+            {key: 'spam.js'},
+            {key: 'slime.js'},
+          ],
+          edges: [
+            {source: 'foo.js', target: 'herp.js'},
+            {source: 'bar.js', target: 'foo.js'},
+            {source: 'baz.js', target: 'foo.js'},
+            {source: 'baz.js', target: 'quux.js'},
+            {source: 'derp.js', target: 'bar.js'},
+            {source: 'spam.js', target: 'derp.js'},
+          ],
+          options: {type: 'directed', multi: false, allowSelfLoops: true},
+        });
+      });
+
+      it('should return a list of removed nodes and mourning parents', function () {
+        expect(mg.graph.hasNode('derp.js'), 'to be true');
+        expect(mg.compact(), 'to equal', {
+          removed: new Set(['derp.js']),
+          affected: new Set(['bar.js']),
+        });
+      });
+    });
   });
 });

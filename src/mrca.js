@@ -91,13 +91,13 @@ class MRCA extends EventEmitter {
      */
     this.ready = undefined;
     Object.defineProperty(this, 'ready', {
-      value: this._init({reset}).then(() => {
-        try {
+      value: this._init({reset})
+        .then(() => {
           this.emit(MRCA.events.READY);
-        } catch (err) {
+        })
+        .catch((err) => {
           this.emit(MRCA.events.ERROR, err);
-        }
-      }),
+        }),
       enumerable: false,
     });
   }
@@ -239,6 +239,7 @@ class MRCA extends EventEmitter {
       throw new TypeError('expected a Set or array of filepaths');
     }
     const dependencies = new Map();
+    /* istanbul ignore next */
     debug('finding all dependencies for: %o', filepaths);
     for (const filepath of filepaths) {
       const result = resolveDependencies(path.resolve(this.cwd, filepath), {
@@ -272,8 +273,9 @@ class MRCA extends EventEmitter {
       ...changed,
       ...missing,
     ]);
+
+    /* istanbul ignore next */
     if (untrackedFilepaths.size) {
-      /* istanbul ignore next */
       debug(
         'found untracked changed (or missing) files: %o',
         untrackedFilepaths

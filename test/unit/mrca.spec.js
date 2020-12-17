@@ -127,8 +127,10 @@ describe('class MRCA', function () {
       mrca = new MRCA({
         entryFiles: ['foo.js', 'bar.js', 'baz.js'],
       });
+    });
 
-      sinon.stub(mrca, 'cwd').get(() => '/pwd/');
+    afterEach(async function () {
+      return mrca.ready;
     });
 
     it('should initialize', function () {
@@ -145,6 +147,40 @@ describe('class MRCA', function () {
 
     it('should always add `cacheDir` to the `ignore` list', function () {
       expect(mrca.ignore, 'to contain', '/some/cache/dir');
+    });
+
+    it('should resolve the `ready` promise prop', async function () {
+      return expect(mrca.ready, 'to be fulfilled');
+    });
+
+    it('should emit "ready" when `ready` prop resolves', async function () {
+      return expect(() => mrca.ready, 'to emit from', mrca, MRCA.events.READY);
+    });
+
+    it('should emit "error" when a "ready" listener throws', async function () {
+      mrca.on(MRCA.events.READY, () => {
+        throw new Error();
+      });
+      return expect(() => mrca.ready, 'to emit from', mrca, MRCA.events.ERROR);
+    });
+
+    describe('when initialization fails', function () {
+      beforeEach(function () {
+        MRCA.prototype._init.rejects(new Error());
+      });
+
+      it('should emit "error" event', async function () {
+        mrca = new MRCA({
+          entryFiles: ['foo.js', 'bar.js', 'baz.js'],
+        });
+
+        return expect(
+          () => mrca.ready,
+          'to emit from',
+          mrca,
+          MRCA.events.ERROR
+        );
+      });
     });
   });
 
@@ -638,11 +674,34 @@ describe('class MRCA', function () {
           expect(mrca.findAllDependencies, 'was called twice');
         });
       });
+
+      describe('when missing deps are encountered', function () {
+        beforeEach(async function () {
+          sinon
+            .stub(mrca, 'findAllDependencies')
+            .resolves(
+              new Map([
+                ['foo.js', {resolved: new Set(), missing: new Set(['bar.js'])}],
+              ])
+            );
+          return mrca._hydrate(filepaths);
+        });
+
+        it('should mark the missing deps as "missing"', function () {
+          expect(mrca.moduleGraph.set, 'to have a call satisfying', [
+            'bar.js',
+            {
+              parents: new Set(['foo.js']),
+              missing: true,
+            },
+          ]);
+        });
+      });
     });
 
     describe('_yieldChangedFiles()', function () {
       /**
-       * @type {SinonStub<[filepath?: string],boolean>}
+       * @type {SinonStub<Parameters<MRCA['has']>,ReturnType<MRCA['has']>>}
        */
       let hasStub;
 
@@ -1044,6 +1103,17 @@ describe('class MRCA', function () {
             ]
           ).and('was called twice');
         });
+      });
+    });
+
+    describe('clear()', function () {
+      it('should return its context', function () {
+        expect(mrca.clear(), 'to be', mrca);
+      });
+
+      it('should delegate to the module graph', function () {
+        mrca.clear();
+        expect(mrca.moduleGraph.reset, 'was called once');
       });
     });
   });

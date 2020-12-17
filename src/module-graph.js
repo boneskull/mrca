@@ -9,7 +9,7 @@ const {sync: loadJSONFile} = require('load-json-file');
 const {sync: writeJSONFile} = require('write-json-file');
 const debug = require('debug')('mrca:module-graph');
 const {DirectedGraph} = require('graphology');
-const {bfsFromNode} = require('graphology-traversal');
+const {bfsFromNode, bfs} = require('graphology-traversal');
 const {allSimplePaths} = require('graphology-simple-path');
 
 const PLATFORM = os.platform();
@@ -23,19 +23,26 @@ const {
 const ENTRY_FILE_KEY = 'entryFile';
 const MISSING_KEY = 'missing';
 
-const realpath = mem((filepath) => {
-  try {
-    return realpathSync(filepath);
-  } catch (ignored) {
-    return filepath;
+const realpath = mem(
+  /**
+   * @param {string} filepath
+   * @returns {string}
+   * @ignore
+   */ (filepath) => {
+    try {
+      return realpathSync(filepath);
+    } catch (ignored) {
+      return filepath;
+    }
   }
-});
+);
 
 /**
- * @param {any} v
+ * @param {string} filepath
+ * @returns {string}
  * @ignore
  */
-const identity = (v) => v;
+const identity = String;
 
 class ModuleGraph {
   /**
@@ -84,32 +91,31 @@ class ModuleGraph {
 
     /**
      * Converts a filepath into a "real" filepath _if_ `useRealPaths` is truthy
-     * @ignore
      */
-    this._toNodeKey = useRealPaths ? realpath : identity;
+    this._tostring = useRealPaths ? realpath : identity;
 
     if (!serialized) {
+      /* istanbul ignore next */
       debug(
         'attempting to read module graph cache from %s',
         this.cacheFilepath
       );
       try {
         serialized = loadJSONFile(this.cacheFilepath);
+        /* istanbul ignore next */
         debug('successfully read JSON from %s', this.cacheFilepath);
       } catch (err) {
         if (err.code === 'ENOENT') {
           this.graph = new DirectedGraph();
+          /* istanbul ignore next */
           debug('no on-disk cache found; created empty graph');
         } else {
           throw err;
         }
-        return this;
       }
+    } else {
+      this.graph = new DirectedGraph();
     }
-
-    this.graph = new DirectedGraph({
-      edgeKeyGenerator: (_, source, target) => `${source}->${target}`,
-    });
 
     if (serialized) {
       this.import(serialized);
@@ -120,6 +126,18 @@ class ModuleGraph {
       this.graph.order,
       this.graph.size
     );
+
+    return this._setupListeners();
+  }
+
+  _setupListeners() {
+    this.graph.on('edgeDropped', ({source}) => {
+      if (!this.graph.edges(source).length) {
+        this.remove(source);
+        debug('removed orphaned node %s', source);
+      }
+    });
+    return this;
   }
 
   /**
@@ -149,7 +167,7 @@ class ModuleGraph {
       attrs[ENTRY_FILE_KEY] = true;
     }
 
-    const nodeKey = this._toNodeKey(filepath);
+    const nodeKey = this._tostring(filepath);
 
     this.graph.mergeNode(nodeKey, attrs);
     for (const parent of parents) {
@@ -161,17 +179,17 @@ class ModuleGraph {
 
   /**
    *
-   * @param {import('graphology-types').SerializedGraph} serialized - Serialized graph representation
-   * @returns {import('graphology-types').SerializedGraph}
+   * @param {SerializedGraph} serialized - Serialized graph representation
+   * @returns {SerializedGraph}
    */
   normalize(serialized) {
     if (this.useRealPaths) {
       for (const node of serialized.nodes) {
-        node.key = this._toNodeKey(node.key);
+        node.key = String(this._tostring(node.key));
       }
       for (const edge of serialized.edges) {
-        edge.source = this._toNodeKey(edge.source);
-        edge.target = this._toNodeKey(edge.target);
+        edge.source = String(this._tostring(edge.source));
+        edge.target = String(this._tostring(edge.target));
       }
       /* istanbul ignore next */
       debug('normalized %o', serialized);
@@ -189,6 +207,10 @@ class ModuleGraph {
     return this;
   }
 
+  /**
+   *
+   * @param {string} filepath
+   */
   importFromFile(filepath) {
     /**
      * @type {import('graphology-types').SerializedGraph}
@@ -218,7 +240,7 @@ class ModuleGraph {
    * @returns {boolean}
    */
   isMissing(filepath) {
-    return this.graph.hasNodeAttribute(this._toNodeKey(filepath), MISSING_KEY);
+    return this.graph.hasNodeAttribute(this._tostring(filepath), MISSING_KEY);
   }
 
   /**
@@ -227,7 +249,7 @@ class ModuleGraph {
    * @returns {ModuleGraph}
    */
   markMissing(filepath) {
-    this.graph.setNodeAttribute(this._toNodeKey(filepath), MISSING_KEY, true);
+    this.graph.setNodeAttribute(this._tostring(filepath), MISSING_KEY, true);
     return this;
   }
 
@@ -237,17 +259,17 @@ class ModuleGraph {
    * @returns {ModuleGraph}
    */
   markFound(filepath) {
-    this.graph.removeNodeAttribute(this._toNodeKey(filepath), MISSING_KEY);
+    this.graph.removeNodeAttribute(this._tostring(filepath), MISSING_KEY);
     return this;
   }
 
   /**
-   *
+   * Removes a node from the graph and any edges to parents. Can cause cascading deletes if it is a parent of a node which has no other parents.
    * @param {string} filepath
    * @returns {ModuleGraph}
    */
   remove(filepath) {
-    this.graph.dropNode(this._toNodeKey(filepath));
+    this.graph.dropNode(this._tostring(filepath));
     return this;
   }
 
@@ -259,7 +281,7 @@ class ModuleGraph {
   isEntryFile(filepath) {
     try {
       return this.graph.hasNodeAttribute(
-        this._toNodeKey(filepath),
+        this._tostring(filepath),
         ENTRY_FILE_KEY
       );
     } catch (ignored) {
@@ -276,7 +298,7 @@ class ModuleGraph {
    */
   getEntryFiles(filepath) {
     const nodes = [];
-    bfsFromNode(this.graph, this._toNodeKey(filepath), (node, attrs) => {
+    bfsFromNode(this.graph, this._tostring(filepath), (node, attrs) => {
       if (attrs[ENTRY_FILE_KEY]) {
         nodes.push(node);
       }
@@ -290,13 +312,12 @@ class ModuleGraph {
    * @returns {AncestorsInfo}
    */
   getAncestors(filepath) {
-    const entryFiles = this.getEntryFiles(this._toNodeKey(filepath));
+    const entryFiles = this.getEntryFiles(this._tostring(filepath));
     debug('looking for paths from %s to any of %o', filepath, entryFiles);
     const ancestors = new Set();
     for (const entryFile of entryFiles) {
       const pathsToEntry = allSimplePaths(this.graph, filepath, entryFile);
       for (const pathToEntry of pathsToEntry) {
-        debug(pathToEntry);
         for (const ancestorOfPathToEntry of pathToEntry) {
           if (ancestorOfPathToEntry !== filepath) {
             ancestors.add(ancestorOfPathToEntry);
@@ -315,7 +336,7 @@ class ModuleGraph {
    * @returns {boolean}
    */
   has(filepath) {
-    return this.graph.hasNode(this._toNodeKey(filepath));
+    return this.graph.hasNode(this._tostring(filepath));
   }
 
   /**
@@ -351,6 +372,27 @@ class ModuleGraph {
   reset() {
     this.graph.clear();
     return this;
+  }
+
+  /**
+   * Removes missing nodes
+   */
+  compact() {
+    const missing = new Set();
+    const affected = new Set();
+    bfs(this.graph, (node, attrs) => {
+      const filepath = String(node);
+      if (attrs[MISSING_KEY]) {
+        this.graph.forEachOutNeighbor(filepath, (node) => {
+          affected.add(node);
+        });
+        missing.add(filepath);
+      }
+    });
+    for (const node of missing) {
+      this.remove(node);
+    }
+    return {removed: missing, affected};
   }
 
   /**
@@ -399,7 +441,7 @@ exports.ModuleGraph = ModuleGraph;
 
 /**
  * @typedef {Object} ModuleGraphOptions
- * @property {import('graphology-types').SerializedGraph} [serialized]
+ * @property {SerializedGraph} [serialized]
  * @property {string} [cacheDir] - Explicit cache directory
  * @property {string} [filename] - Filename for cache
  * @property {string} [cwd] - Current working directory; affects location of cache dir if not provided
@@ -422,4 +464,8 @@ exports.ModuleGraph = ModuleGraph;
  * @typedef {Object} AncestorsInfo
  * @property {Set<string>} ancestors
  * @property {Set<string>} entryFiles
+ */
+
+/**
+ * @typedef {import('graphology-types').SerializedGraph} SerializedGraph
  */
