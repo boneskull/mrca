@@ -92,7 +92,7 @@ class ModuleGraph {
     /**
      * Converts a filepath into a "real" filepath _if_ `useRealPaths` is truthy
      */
-    this._tostring = useRealPaths ? realpath : identity;
+    this._toNodeKey = useRealPaths ? realpath : identity;
 
     if (!serialized) {
       /* istanbul ignore next */
@@ -169,7 +169,7 @@ class ModuleGraph {
       attrs[ENTRY_FILE_KEY] = true;
     }
 
-    const nodeKey = this._tostring(filepath);
+    const nodeKey = this._toNodeKey(filepath);
 
     this.graph.mergeNode(nodeKey, attrs);
     for (const parent of parents) {
@@ -187,11 +187,11 @@ class ModuleGraph {
   normalize(serialized) {
     if (this.useRealPaths) {
       for (const node of serialized.nodes) {
-        node.key = String(this._tostring(node.key));
+        node.key = String(this._toNodeKey(node.key));
       }
       for (const edge of serialized.edges) {
-        edge.source = String(this._tostring(edge.source));
-        edge.target = String(this._tostring(edge.target));
+        edge.source = String(this._toNodeKey(edge.source));
+        edge.target = String(this._toNodeKey(edge.target));
       }
       /* istanbul ignore next */
       debug('normalized %o', serialized);
@@ -246,7 +246,10 @@ class ModuleGraph {
    */
   isMissing(filepath) {
     try {
-      return this.graph.hasNodeAttribute(this._tostring(filepath), MISSING_KEY);
+      return this.graph.hasNodeAttribute(
+        this._toNodeKey(filepath),
+        MISSING_KEY
+      );
     } catch (ignored) {
       return false;
     }
@@ -261,7 +264,7 @@ class ModuleGraph {
    */
   markMissing(filepath) {
     try {
-      this.graph.setNodeAttribute(this._tostring(filepath), MISSING_KEY, true);
+      this.graph.setNodeAttribute(this._toNodeKey(filepath), MISSING_KEY, true);
       return this;
     } catch (err) {
       if (err instanceof NotFoundGraphError) {
@@ -281,7 +284,7 @@ class ModuleGraph {
    */
   markFound(filepath) {
     try {
-      this.graph.removeNodeAttribute(this._tostring(filepath), MISSING_KEY);
+      this.graph.removeNodeAttribute(this._toNodeKey(filepath), MISSING_KEY);
       return this;
     } catch (err) {
       if (err instanceof NotFoundGraphError) {
@@ -300,7 +303,7 @@ class ModuleGraph {
    * @returns {ModuleGraph}
    */
   remove(filepath) {
-    this.graph.dropNode(this._tostring(filepath));
+    this.graph.dropNode(this._toNodeKey(filepath));
     return this;
   }
 
@@ -312,7 +315,7 @@ class ModuleGraph {
   isEntryFile(filepath) {
     try {
       return this.graph.hasNodeAttribute(
-        this._tostring(filepath),
+        this._toNodeKey(filepath),
         ENTRY_FILE_KEY
       );
     } catch (ignored) {
@@ -329,7 +332,7 @@ class ModuleGraph {
    */
   getEntryFiles(filepath) {
     const nodes = [];
-    bfsFromNode(this.graph, this._tostring(filepath), (node, attrs) => {
+    bfsFromNode(this.graph, this._toNodeKey(filepath), (node, attrs) => {
       if (attrs[ENTRY_FILE_KEY]) {
         nodes.push(node);
       }
@@ -343,7 +346,7 @@ class ModuleGraph {
    * @returns {AncestorsInfo}
    */
   getAncestors(filepath) {
-    const entryFiles = this.getEntryFiles(this._tostring(filepath));
+    const entryFiles = this.getEntryFiles(this._toNodeKey(filepath));
     debug('looking for paths from %s to any of %o', filepath, entryFiles);
     const ancestors = new Set();
     for (const entryFile of entryFiles) {
@@ -367,7 +370,7 @@ class ModuleGraph {
    * @returns {boolean}
    */
   has(filepath) {
-    return this.graph.hasNode(this._tostring(filepath));
+    return this.graph.hasNode(this._toNodeKey(filepath));
   }
 
   /**
