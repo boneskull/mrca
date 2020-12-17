@@ -8,7 +8,7 @@ const path = require('path');
 const {sync: loadJSONFile} = require('load-json-file');
 const {sync: writeJSONFile} = require('write-json-file');
 const debug = require('debug')('mrca:module-graph');
-const {DirectedGraph} = require('graphology');
+const {DirectedGraph, NotFoundGraphError} = require('graphology');
 const {bfsFromNode, bfs} = require('graphology-traversal');
 const {allSimplePaths} = require('graphology-simple-path');
 
@@ -134,6 +134,7 @@ class ModuleGraph {
     this.graph.on('edgeDropped', ({source}) => {
       if (!this.graph.edges(source).length) {
         this.remove(source);
+        /* istanbul ignore next */
         debug('removed orphaned node %s', source);
       }
     });
@@ -151,19 +152,20 @@ class ModuleGraph {
   /**
    *
    * @param {string} filepath
-   * @param {Partial<SetOptions>} param1
+   * @param {SetOptions} param1
    * @returns {string}
    */
   set(
     filepath,
-    {parents = new Set(), missing = false, isEntryFile = false} = {}
+    {parents = new Set(), missing = false, entryFile = false} = {}
   ) {
     const attrs = {};
 
     if (missing) {
       attrs[MISSING_KEY] = true;
     }
-    if (isEntryFile) {
+
+    if (entryFile) {
       attrs[ENTRY_FILE_KEY] = true;
     }
 
@@ -199,11 +201,14 @@ class ModuleGraph {
 
   /**
    *
-   * @param {import('graphology-types').SerializedGraph} serialized - Serialized graph representation
+   * @param {Partial<import('graphology-types').SerializedGraph>} serialized - Serialized graph representation
    * @returns {ModuleGraph}
    */
-  import(serialized) {
-    this.graph.import(this.normalize(serialized));
+  import({edges = [], nodes = [], attributes = {}, options = {}} = {}) {
+    this.graph.import(
+      this.normalize({edges, nodes, attributes, options}),
+      true
+    );
     return this;
   }
 
@@ -240,17 +245,33 @@ class ModuleGraph {
    * @returns {boolean}
    */
   isMissing(filepath) {
-    return this.graph.hasNodeAttribute(this._tostring(filepath), MISSING_KEY);
+    try {
+      return this.graph.hasNodeAttribute(this._tostring(filepath), MISSING_KEY);
+    } catch (ignored) {
+      return false;
+    }
   }
 
   /**
    *
    * @param {string} filepath
+   * @throws
+   * @todo Error code
    * @returns {ModuleGraph}
    */
   markMissing(filepath) {
-    this.graph.setNodeAttribute(this._tostring(filepath), MISSING_KEY, true);
-    return this;
+    try {
+      this.graph.setNodeAttribute(this._tostring(filepath), MISSING_KEY, true);
+      return this;
+    } catch (err) {
+      if (err instanceof NotFoundGraphError) {
+        throw new Error(
+          `attempted to mark filepath ${filepath} as missing, but it does not exist`
+        );
+      }
+      /* istanbul ignore next */
+      throw err; // unknown error
+    }
   }
 
   /**
@@ -259,8 +280,18 @@ class ModuleGraph {
    * @returns {ModuleGraph}
    */
   markFound(filepath) {
-    this.graph.removeNodeAttribute(this._tostring(filepath), MISSING_KEY);
-    return this;
+    try {
+      this.graph.removeNodeAttribute(this._tostring(filepath), MISSING_KEY);
+      return this;
+    } catch (err) {
+      if (err instanceof NotFoundGraphError) {
+        throw new Error(
+          `attempted to mark filepath ${filepath} as found, but it does not exist`
+        );
+      }
+      /* istanbul ignore next */
+      throw err; // unknown error
+    }
   }
 
   /**
@@ -455,9 +486,9 @@ exports.ModuleGraph = ModuleGraph;
 
 /**
  * @typedef {Object} SetOptions
- * @property {Set<string>} parents
- * @property {boolean} missing
- * @property {boolean} isEntryFile
+ * @property {Set<string>} [parents]
+ * @property {boolean} [missing]
+ * @property {boolean} [entryFile]
  */
 
 /**

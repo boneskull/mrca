@@ -113,7 +113,7 @@ class MRCA extends EventEmitter {
     for (const entryFile of this.entryFiles) {
       if (!this.moduleGraph.isEntryFile(entryFile)) {
         debug('known file %s became an entry file', entryFile);
-        newEntryFiles.add(this.moduleGraph.set(entryFile, {isEntryFile: true}));
+        newEntryFiles.add(this.moduleGraph.set(entryFile, {entryFile: true}));
       }
     }
 
@@ -332,7 +332,7 @@ class MRCA extends EventEmitter {
       this.entryFiles.add(filepath);
     }
 
-    this.moduleGraph.set(filepath, {isEntryFile: true});
+    this.moduleGraph.set(filepath, {entryFile: true});
     if (this.has(filepath)) {
       /* istanbul ignore next */
       debug('marked file %s as an entry file', filepath);

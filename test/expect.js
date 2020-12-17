@@ -46,11 +46,11 @@ module.exports = require('unexpected')
     expect.shift(subject.export());
   })
   .addAssertion(
-    '<SerializedGraph> to contain (node|nodes) <any+>',
+    '<SerializedGraph> [not] to contain (node|nodes) <any+>',
     (expect, subject, ...values) => {
       expect(
         subject.nodes,
-        'to contain',
+        '[not] to contain',
         ...values.map((value) => {
           if (Array.isArray(value)) {
             return {key: value[0], attributes: value[1]};
