@@ -1,6 +1,6 @@
 'use strict';
 
-const {ThreadedModuleMap} = require('../../src/threaded-module-map');
+const {ThreadedMRCA} = require('../../src/threaded-mrca');
 const sinon = require('sinon');
 const path = require('path');
 const expect = require('../expect');
@@ -9,10 +9,12 @@ const expect = require('../expect');
  * @param {string} filename
  */
 const resolveFixturePath = (filename) =>
-  path.join(__dirname, 'fixtures', 'module-map', filename);
+  path.join(__dirname, 'fixtures', filename);
 
-const TEST_MODULE_MAP_CACHE_FILENAME = 'module-map-integration-test.cache.json';
-const TEST_FILE_ENTRY_CACHE_FILENAME = 'file-entry-integration-test.cache.json';
+const TEST_MODULE_GRAPH_CACHE_FILENAME =
+  'threaded-module-graph-integration-test.cache.json';
+const TEST_FILE_ENTRY_CACHE_FILENAME =
+  'threaded-file-entry-integration-test.cache.json';
 const TEST_WITH_DEP_PATH = resolveFixturePath(
   'test-with-dependency.fixture.js'
 );
@@ -22,54 +24,72 @@ const TEST_WITH_TRANSITIVE_DEP_PATH = resolveFixturePath(
 );
 const TRANSITIVE_DEP_PATH = resolveFixturePath('transitive-dep.fixture.js');
 
-describe.skip('threaded-module-map', function () {
+describe('threaded-mrca', function () {
   /**
-   * @type {ThreadedModuleMap}
+   * @type {ThreadedMRCA}
    */
-  let tmm;
+  let tmrca;
 
   beforeEach(async function () {
-    tmm = ThreadedModuleMap.create({
+    tmrca = ThreadedMRCA.create({
       fileEntryCacheFilename: TEST_FILE_ENTRY_CACHE_FILENAME,
-      moduleMapCacheFilename: TEST_MODULE_MAP_CACHE_FILENAME,
+      moduleGraphCacheFilename: TEST_MODULE_GRAPH_CACHE_FILENAME,
       entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
       reset: true,
     });
-    return Promise.all([tmm._online, tmm.ready]);
+    return tmrca.ready;
   });
 
   afterEach(async function () {
     sinon.restore();
-    return tmm._worker.terminate();
+    return tmrca._worker.terminate();
   });
 
   describe('initialization', function () {
-    it('should populate the ThreadedModuleMap with all entry files and dependencies thereof', async function () {
-      expect(tmm, 'as JSON', 'to satisfy', {
-        [TEST_WITH_DEP_PATH]: {
-          filename: TEST_WITH_DEP_PATH,
-          entryFiles: [],
-          children: [DEP_PATH],
-          parents: [],
+    it('should populate the ThreadedMRCA with all entry files and dependencies thereof', function () {
+      expect(tmrca.moduleGraph, 'as JSON', 'to satisfy', {
+        cacheDir: /\.cache\/mocha/,
+        cwd: process.cwd(),
+        filename: TEST_MODULE_GRAPH_CACHE_FILENAME,
+        graph: {
+          attributes: {},
+          edges: [
+            {
+              source: DEP_PATH,
+              target: TEST_WITH_DEP_PATH,
+            },
+            {
+              source: DEP_PATH,
+              target: TEST_WITH_TRANSITIVE_DEP_PATH,
+            },
+            {
+              source: TRANSITIVE_DEP_PATH,
+              target: TEST_WITH_TRANSITIVE_DEP_PATH,
+            },
+            {
+              source: DEP_PATH,
+              target: TRANSITIVE_DEP_PATH,
+            },
+          ],
+          nodes: [
+            {
+              attributes: {entryFile: true},
+              key: TEST_WITH_DEP_PATH,
+            },
+            {
+              attributes: {entryFile: true},
+              key: TEST_WITH_TRANSITIVE_DEP_PATH,
+            },
+            {
+              key: DEP_PATH,
+            },
+            {
+              key: TRANSITIVE_DEP_PATH,
+            },
+          ],
+          options: {allowSelfLoops: true, multi: false, type: 'directed'},
         },
-        [TEST_WITH_TRANSITIVE_DEP_PATH]: {
-          filename: TEST_WITH_TRANSITIVE_DEP_PATH,
-          entryFiles: [],
-          children: [TRANSITIVE_DEP_PATH],
-          parents: [],
-        },
-        [DEP_PATH]: {
-          filename: DEP_PATH,
-          entryFiles: [TEST_WITH_DEP_PATH, TEST_WITH_TRANSITIVE_DEP_PATH],
-          children: [],
-          parents: [TEST_WITH_DEP_PATH, TRANSITIVE_DEP_PATH],
-        },
-        [TRANSITIVE_DEP_PATH]: {
-          filename: TRANSITIVE_DEP_PATH,
-          entryFiles: [TEST_WITH_TRANSITIVE_DEP_PATH],
-          children: [DEP_PATH],
-          parents: [TEST_WITH_TRANSITIVE_DEP_PATH],
-        },
+        useRealPaths: expect.it('to be a boolean'),
       });
     });
   });

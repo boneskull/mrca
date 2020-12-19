@@ -4,7 +4,7 @@ const debug = require('debug')('mrca');
 const {findCacheDir} = require('./util');
 const {ModuleGraph} = require('./module-graph');
 const {FileEntryCache} = require('./file-entry-cache');
-const {resolveDependencies} = require('./resolver');
+const {Resolver} = require('./resolver');
 const path = require('path');
 const {EventEmitter} = require('events');
 const sortKeys = require('sort-keys');
@@ -47,6 +47,7 @@ class MRCA extends EventEmitter {
       cacheDir: this.cacheDir,
       cwd: this.cwd,
       useRealPaths,
+      reset,
     });
 
     /**
@@ -91,7 +92,8 @@ class MRCA extends EventEmitter {
      */
     this.ready = undefined;
     Object.defineProperty(this, 'ready', {
-      value: this._init({reset})
+      value: Promise.resolve()
+        .then(() => this._init({reset}))
         .then(() => {
           this.emit(MRCA.events.READY);
         })
@@ -100,23 +102,43 @@ class MRCA extends EventEmitter {
         }),
       enumerable: false,
     });
+
+    this.resolver = Resolver.create({
+      cwd: this.cwd,
+      ignore: this.ignore,
+      tsConfigPath: this.tsConfigPath,
+      webpackConfigPath: this.webpackConfigPath,
+    });
+
+    debug('instantiated MRCA instance, ignoring %O', this.ignore);
   }
 
   async _init({reset = false} = {}) {
     if (reset) {
       this.moduleGraph.reset();
       this.fileEntryCache.reset();
-      debug('reset caches');
+      /* istanbul ignore next */
+      debug('reset in-memory caches');
     }
 
     const newEntryFiles = new Set();
     for (const entryFile of this.entryFiles) {
       if (!this.moduleGraph.isEntryFile(entryFile)) {
-        debug('known file %s became an entry file', entryFile);
-        newEntryFiles.add(this.moduleGraph.set(entryFile, {entryFile: true}));
+        /* istanbul ignore next */
+        debug('file at %s became an entry file', entryFile);
+        const entryFilePath = this.moduleGraph.set(entryFile, {
+          entryFile: true,
+        });
+        this.emit('set', {
+          filepath: entryFilePath,
+          attributes: {entryFile: true},
+        });
+        newEntryFiles.add(entryFilePath);
+      } else {
+        /* istanbul ignore next */
+        debug('%s already recognized as an entry file', entryFile);
       }
     }
-
     const {changed, missing} = this._yieldChangedFiles(this.entryFiles);
 
     const changedFilepaths = new Set([
@@ -126,7 +148,10 @@ class MRCA extends EventEmitter {
     ]);
 
     if (changedFilepaths.size) {
-      debug('found %d changed files; hydrating', changedFilepaths.size);
+      debug(
+        'found %d changed, new or missing files; hydrating',
+        changedFilepaths.size
+      );
       await this._hydrate(changedFilepaths);
       this.save();
     }
@@ -161,7 +186,12 @@ class MRCA extends EventEmitter {
           if (resolvedDeps.has(filepath)) {
             const {resolved: children, missing} = resolvedDeps.get(filepath);
             for (const child of children) {
-              this.moduleGraph.set(child, {parents: new Set([filepath])});
+              const attributes = {parents: new Set([filepath])};
+              if (this.entryFiles.has(child)) {
+                attributes.entryFile = true;
+              }
+              this.moduleGraph.set(child, attributes);
+              this.emit('set', {filepath: child, attributes});
               next.add(child);
             }
             for (const missingChild of missing) {
@@ -241,13 +271,11 @@ class MRCA extends EventEmitter {
     const dependencies = new Map();
     /* istanbul ignore next */
     debug('finding all dependencies for: %o', filepaths);
+    this.resolver.clearCacheForFiles(filepaths);
     for (const filepath of filepaths) {
-      const result = resolveDependencies(path.resolve(this.cwd, filepath), {
-        cwd: this.cwd,
-        ignore: this.ignore,
-        tsConfigPath: this.tsConfigPath,
-        webpackConfigPath: this.webpackConfigPath,
-      });
+      const result = this.resolver.resolveDependencies(
+        path.resolve(this.cwd, filepath)
+      );
       dependencies.set(filepath, result);
     }
     return dependencies;

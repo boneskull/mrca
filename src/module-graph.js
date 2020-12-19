@@ -1,5 +1,6 @@
 'use strict';
 
+const slug = require('slug');
 const sortKeys = require('sort-keys');
 const {realpathSync} = require('fs');
 const mem = require('mem');
@@ -22,6 +23,14 @@ const {
 
 const ENTRY_FILE_KEY = 'entryFile';
 const MISSING_KEY = 'missing';
+
+const edgeKeyGenerator = (params) => {
+  const {source, target} = params;
+  return `${slug(source, {replacement: '-', lower: false})}->${slug(target, {
+    replacement: '-',
+    lower: false,
+  })}`;
+};
 
 const realpath = mem(
   /**
@@ -55,6 +64,7 @@ class ModuleGraph {
     cacheDir,
     filename,
     useRealPaths = PLATFORM === 'darwin',
+    reset,
   } = {}) {
     /**
      * Current working directory
@@ -94,7 +104,7 @@ class ModuleGraph {
      */
     this._toNodeKey = useRealPaths ? realpath : identity;
 
-    if (!serialized) {
+    if (!serialized && !reset) {
       /* istanbul ignore next */
       debug(
         'attempting to read module graph cache from %s',
@@ -104,9 +114,10 @@ class ModuleGraph {
         serialized = loadJSONFile(this.cacheFilepath);
         /* istanbul ignore next */
         debug('successfully read JSON from %s', this.cacheFilepath);
+        this.graph = new DirectedGraph({edgeKeyGenerator});
       } catch (err) {
         if (err.code === 'ENOENT') {
-          this.graph = new DirectedGraph();
+          this.graph = new DirectedGraph({edgeKeyGenerator});
           /* istanbul ignore next */
           debug('no on-disk cache found; created empty graph');
         } else {
@@ -114,7 +125,7 @@ class ModuleGraph {
         }
       }
     } else {
-      this.graph = new DirectedGraph();
+      this.graph = new DirectedGraph({edgeKeyGenerator});
     }
 
     if (serialized) {
@@ -132,7 +143,10 @@ class ModuleGraph {
 
   _setupListeners() {
     this.graph.on('edgeDropped', ({source}) => {
-      if (!this.graph.edges(source).length) {
+      if (
+        !this.graph.edges(source).length ||
+        !this.getEntryFiles(source).size
+      ) {
         this.remove(source);
         /* istanbul ignore next */
         debug('removed orphaned node %s', source);
@@ -170,12 +184,44 @@ class ModuleGraph {
     }
 
     const nodeKey = this._toNodeKey(filepath);
-
-    this.graph.mergeNode(nodeKey, attrs);
-    for (const parent of parents) {
-      this.graph.mergeDirectedEdge(nodeKey, parent);
+    if (this.graph.hasNode(nodeKey)) {
+      debug('updating node with filepath %s and parents %s', nodeKey, parents);
+    } else {
+      debug('adding node with filepath %s and parents %s', nodeKey, parents);
     }
 
+    // if (this.graph.hasNode(nodeKey))
+
+    this.graph.mergeNode(nodeKey, attrs);
+
+    for (const parent of parents) {
+      this.graph.mergeDirectedEdge(nodeKey, parent);
+      // this.graph.mergeDirectedEdge(nodeKey, parent, {parent: true});
+      // this.graph.mergeDirectedEdge(parent, nodeKey, {child: true});
+    }
+    for (const parent of parents) {
+      for (const edge of this.graph.edges(parent)) {
+        const source = this.graph.source(edge);
+        const target = this.graph.target(edge);
+        if (nodeKey !== source) {
+          debug(
+            'inspecting child %s w/ parent %s for node %s with parents %s',
+            path.basename(source),
+            path.basename(target),
+            path.basename(nodeKey),
+            [...parents].map((parent) => path.basename(parent))
+          );
+          if (!parents.has(source)) {
+            this.graph.dropEdge(edge);
+            debug(
+              'dropped invalid edge from %s to %s',
+              path.basename(source),
+              path.basename(target)
+            );
+          }
+        }
+      }
+    }
     return nodeKey;
   }
 
@@ -405,6 +451,7 @@ class ModuleGraph {
    */
   reset() {
     this.graph.clear();
+    debug('reset graph');
     return this;
   }
 
@@ -458,13 +505,16 @@ class ModuleGraph {
   }
 
   toJSON() {
+    const graph = this.graph.export();
+    graph.nodes = graph.nodes.sort((a, b) => a.key.localeCompare(b.key));
+    graph.edges = graph.edges.sort((a, b) => a.source.localeCompare(b.source));
     return sortKeys(
       {
         cwd: this.cwd,
         cacheDir: this.cacheDir,
         filename: this.filename,
         useRealPaths: this.useRealPaths,
-        graph: this.graph.export(),
+        graph,
       },
       {deep: true}
     );
@@ -480,6 +530,7 @@ exports.ModuleGraph = ModuleGraph;
  * @property {string} [filename] - Filename for cache
  * @property {string} [cwd] - Current working directory; affects location of cache dir if not provided
  * @property {boolean} [useRealPaths] - If `true`, compute real FS paths. Needed on darwin, maybe others
+ * @property {boolean} [reset] - If `true`, force start with an empty graph
  */
 
 /**

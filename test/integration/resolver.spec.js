@@ -48,8 +48,9 @@ describe('dependency resolution', function () {
     describe('cache behavior', function () {
       /** @type {string} */
       let fixturePath;
-
+      /** @type {string} */
       let transitiveDepFixturePath;
+      /** @type {string} */
       let depFixturePath;
 
       beforeEach(function () {

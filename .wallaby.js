@@ -20,7 +20,7 @@ module.exports = () => ({
     type: 'node',
     runner: 'node',
     params: {
-      env: `DEBUG=mrca*,tree,cabinet;NODE_PATH=${__dirname};UNEXPECTED_DEPTH=10`,
+      env: `DEBUG=mrca*;NODE_PATH=${__dirname};UNEXPECTED_DEPTH=10`,
     },
   },
   debug: true,

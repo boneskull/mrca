@@ -9,7 +9,14 @@ module.exports = require('unexpected')
   .use(require('unexpected-set'))
   .use(require('unexpected-snapshot'))
   .use(require('unexpected-eventemitter'))
-  .addAssertion('<Map> as JSON <assertion>', (expect, subject) => {
+  .addType({
+    name: 'Serializable',
+    base: 'object',
+    identify(v) {
+      return this.baseType.identify(v) && typeof v.toJSON === 'function';
+    },
+  })
+  .addAssertion('<Serializable> as JSON <assertion>', (expect, subject) => {
     expect.errorMode = 'nested';
     expect.shift(subject.toJSON());
   })

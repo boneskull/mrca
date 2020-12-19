@@ -113,9 +113,9 @@ class ThreadedMRCA extends MRCA {
           worker.removeListener('error', reject);
           /* istanbul ignore next */
           debug('worker done resolving deps for %d files', filepaths.length);
-          worker.postMessage({
-            command: 'disconnect',
-          });
+          // worker.postMessage({
+          //   command: 'disconnect',
+          // });
           resolve(resolvedDependencyMap);
         }
       };
